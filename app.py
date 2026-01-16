@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 PTZ11 Broadcast Controller v6.8
-Ultra-safe: Script at end of body, immediate execution
-BUGFIX: Joystick timeout removed - now holds stable until pointerup/pointercancel
+Stable release - joystick timeout removed, clean working state
 """
 
 import cv2, threading, socket, time, logging, json, os
@@ -249,7 +248,7 @@ body{width:100%;height:100vh;background:var(--bg);color:var(--text);font-family:
 .joystick-wrap{display:flex;justify-content:center;margin-bottom:12px}
 .joystick{position:relative;width:180px;height:180px;background:radial-gradient(circle at 35% 35%,#3d3d3d,#1a1a1a);border:3px solid var(--border);border-radius:50%;box-shadow:inset 0 2px 8px rgba(0,0,0,0.8),inset 0 -2px 8px rgba(255,255,255,0.1),0 8px 16px rgba(0,0,0,0.5);cursor:crosshair;user-select:none;display:flex;align-items:center;justify-content:center;touch-action:none}
 .joystick-ring{position:absolute;width:120px;height:120px;border:2px dashed var(--border);border-radius:50%;opacity:0.5}
-.joystick-knob{position:absolute;width:50px;height:50px;background:radial-gradient(circle at 30% 30%,#666,#222);border-radius:50%;box-shadow:0 4px 12px rgba(0,0,0,0.6),inset 0 2px 4px rgba(255,255,255,0.2);cursor:grab;z-index:10;border:2px solid var(--border)}
+.joystick-knob{position:absolute;width:50px;height:50px;background:radial-gradient(circle at 30% 30%,#666,#222);border-radius:50%;box-shadow:0 4px 12px rgba(0,0,0,0.6),inset 0 2px 4px rgba(255,255,255,0.2);cursor:grab;z-index:10;border:2px solid var(--border);transition:none}
 .joystick-knob.active{cursor:grabbing}
 .slider-group{display:flex;gap:10px;margin-bottom:12px}
 .slider-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
@@ -276,7 +275,7 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 <div class="header">
 <div>
 <h1>[CAMERA] PTZ11 Controller</h1>
-<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.8 [FIXED]</p>
+<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.8 STABLE</p>
 </div>
 <div style="display:flex;gap:20px">
 <div style="display:flex;gap:8px;font-size:12px"><span>Camera</span><div style="width:10px;height:10px;border-radius:50%;background:#aaa" id="cam-dot"></div></div>
@@ -373,7 +372,7 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 </div>
 </body>
 <script>
-console.log('[INIT] Script starting... (FIXED JOYSTICK)');
+console.log('[INIT] Joystick STABLE - timeout removed, knob transitions via CSS');
 
 let joyActive=false, joyPointerId=null, lastCmd=null, joySpeedMult=0.5;
 
@@ -381,13 +380,7 @@ const joypad=document.getElementById('joypad');
 const joyKnob=document.getElementById('joy-knob');
 const joySpeed=document.getElementById('joy-speed');
 
-console.log('[CHECK] Elements:', {joypad: !!joypad, joyKnob: !!joyKnob, joySpeed: !!joySpeed});
-
-if(!joypad || !joyKnob || !joySpeed) {
-    console.error('[ERROR] Missing critical DOM elements!');
-} else {
-    console.log('[OK] All elements found, attaching listeners...');
-}
+console.log('[CHECK] Joystick elements:', {joypad: !!joypad, joyKnob: !!joyKnob, joySpeed: !!joySpeed});
 
 function releaseJoystick() {
     if(!joyActive) return;
@@ -395,9 +388,8 @@ function releaseJoystick() {
     joyActive=false;
     joyPointerId=null;
     joyKnob.classList.remove('active');
-    joyKnob.style.transition='none';
     updateJoyVisual(0,0);
-    fetch('/api/stop').catch(e=>console.error('Stop error:',e));
+    fetch('/api/stop').catch(e=>console.error('Stop:',e));
     lastCmd=null;
 }
 
@@ -431,9 +423,8 @@ joypad.addEventListener('pointerdown', e => {
     joyActive=true;
     joyPointerId=e.pointerId;
     joyKnob.classList.add('active');
-    joyKnob.style.transition='transform 0.05s ease-out';
     joypad.setPointerCapture(e.pointerId);
-    console.log('Joystick DOWN (pointerId:', e.pointerId, ')');
+    console.log('Joystick DOWN');
 });
 
 document.addEventListener('pointermove', e => {
@@ -445,7 +436,7 @@ document.addEventListener('pointermove', e => {
     if(dist>maxDist){const angle=Math.atan2(y,x);x=Math.cos(angle)*maxDist;y=Math.sin(angle)*maxDist;}
     updateJoyVisual(x,y);
     const dir=getJoyDir(x,y), url=`/api/move?p=${dir.p}&t=${dir.t}&s=${dir.s}`;
-    if(url!==lastCmd){fetch(url).catch(e=>console.error('Move error:',e));lastCmd=url;}
+    if(url!==lastCmd){fetch(url).catch(e=>console.error('Move:',e));lastCmd=url;}
 });
 
 document.addEventListener('pointerup', e => {
@@ -464,17 +455,17 @@ document.querySelectorAll('.ctrl-slider').forEach(el=>{
     el.addEventListener('input', e => {
         const type=e.target.dataset.type, val=parseInt(e.target.value);
         if(type==='zoom'){
-            if(val===0){fetch('/api/zoom?dir=stop').catch(e=>console.error('Zoom stop error:',e));document.getElementById('zoom-val').textContent='STOP';}
-            else{const dir=(val>0)?'in':'out', spd=Math.abs(val);fetch(`/api/zoom?dir=${dir}&s=${spd}`).catch(e=>console.error('Zoom error:',e));document.getElementById('zoom-val').textContent=dir.toUpperCase()+' '+spd;}
+            if(val===0){fetch('/api/zoom?dir=stop').catch(e=>console.error('Zoom stop:',e));document.getElementById('zoom-val').textContent='STOP';}
+            else{const dir=(val>0)?'in':'out', spd=Math.abs(val);fetch(`/api/zoom?dir=${dir}&s=${spd}`).catch(e=>console.error('Zoom:',e));document.getElementById('zoom-val').textContent=dir.toUpperCase()+' '+spd;}
         }else{
-            if(val===0){fetch('/api/focus?dir=stop').catch(e=>console.error('Focus stop error:',e));document.getElementById('focus-val').textContent='AUTO';}
-            else{const dir=(val>0)?'near':'far', spd=Math.abs(val);fetch(`/api/focus?dir=${dir}&s=${spd}`).catch(e=>console.error('Focus error:',e));document.getElementById('focus-val').textContent=dir.toUpperCase()+' '+spd;}
+            if(val===0){fetch('/api/focus?dir=stop').catch(e=>console.error('Focus stop:',e));document.getElementById('focus-val').textContent='AUTO';}
+            else{const dir=(val>0)?'near':'far', spd=Math.abs(val);fetch(`/api/focus?dir=${dir}&s=${spd}`).catch(e=>console.error('Focus:',e));document.getElementById('focus-val').textContent=dir.toUpperCase()+' '+spd;}
         }
     });
 });
 
 document.getElementById('stop-btn').addEventListener('click', () => {
-    console.log('Stop clicked');
+    console.log('STOP button');
     releaseJoystick();
     document.getElementById('zoom').value=0;
     document.getElementById('focus').value=0;
@@ -483,20 +474,20 @@ document.getElementById('stop-btn').addEventListener('click', () => {
 });
 
 document.getElementById('home-btn').addEventListener('click', () => {
-    console.log('Home clicked');
-    fetch('/api/preset/call?num=1').then(()=>updateStatus()).catch(e=>console.error('Home error:',e));
+    console.log('HOME button');
+    fetch('/api/preset/call?num=1').then(()=>updateStatus()).catch(e=>console.error('Home:',e));
 });
 
 document.getElementById('focus-btn').addEventListener('click', () => {
-    console.log('Focus clicked');
-    fetch('/api/focus?dir=stop').catch(e=>console.error('Focus error:',e));
+    console.log('FOCUS button');
+    fetch('/api/focus?dir=stop').catch(e=>console.error('Focus:',e));
     document.getElementById('focus').value=0;
     document.getElementById('focus-val').textContent='AUTO';
 });
 
 document.getElementById('clear-btn').addEventListener('click', () => {
     if(confirm('Delete ALL presets?')){
-        for(let i=1;i<=32;i++)fetch(`/api/preset/delete?num=${i}`).catch(e=>console.error('Delete error:',e));
+        for(let i=1;i<=32;i++)fetch(`/api/preset/delete?num=${i}`).catch(e=>console.error('Delete:',e));
         alert('Cleared');
     }
 });
@@ -515,14 +506,14 @@ function genPresets(){
                 document.querySelectorAll('.preset-btn').forEach(b=>b.classList.remove('active'));
                 document.getElementById('preset-'+i).classList.add('active');
                 updateStatus();
-            }).catch(e=>console.error('Preset call error:',e));
+            }).catch(e=>console.error('Preset call:',e));
         });
         btn.addEventListener('dblclick',()=>{
             if(confirm(`Save Preset ${i}?`)){
                 console.log('Preset set:',i);
                 fetch(`/api/preset/set?num=${i}`).then(r=>r.json()).then(d=>{
                     alert(d.success?'Saved!':'Error');
-                }).catch(e=>{console.error('Preset set error:',e);alert('Error');});
+                }).catch(e=>{console.error('Preset set:',e);alert('Error');});
             }
         });
         grid.appendChild(btn);
@@ -534,11 +525,11 @@ function loadConfig(){
         document.getElementById('cam-ip').value=d.cam_ip;
         document.getElementById('cam-port').value=d.cam_port;
         document.getElementById('rtsp-url').value=d.rtsp_url;
-    }).catch(e=>console.error('Config load error:',e));
+    }).catch(e=>console.error('Config load:',e));
 }
 
 document.getElementById('save-btn').addEventListener('click', () => {
-    console.log('Save clicked');
+    console.log('SAVE config');
     const config={
         cam_ip:document.getElementById('cam-ip').value,
         cam_port:parseInt(document.getElementById('cam-port').value),
@@ -547,18 +538,18 @@ document.getElementById('save-btn').addEventListener('click', () => {
     fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)})
         .then(r=>r.json())
         .then(d=>{alert(d.success?'Saved!':'Error');})
-        .catch(err=>{console.error('Config save error:',err);alert('Error: '+err);});
+        .catch(err=>{console.error('Config save:',err);alert('Error: '+err);});
 });
 
 document.getElementById('test-btn').addEventListener('click', () => {
-    console.log('Test clicked');
+    console.log('TEST camera');
     const btn=document.getElementById('test-btn');
     btn.disabled=true;
     btn.textContent='Testing...';
     fetch('/api/status')
         .then(r=>r.json())
         .then(d=>{alert(d.reachable?'OK ONLINE':'NOT OFFLINE');})
-        .catch(e=>{console.error('Test error:',e);alert('FAILED');})
+        .catch(e=>{console.error('Test:',e);alert('FAILED');})
         .finally(()=>{btn.disabled=false;btn.textContent='[TEST] Test';});
 });
 
@@ -582,11 +573,11 @@ function updateStatus(){
                 streamInfo.textContent='* OFFLINE';
             }
         })
-        .catch(e=>console.error('Status error:',e));
+        .catch(e=>console.error('Status:',e));
 }
 
 document.getElementById('refresh-btn').addEventListener('click', () => {
-    console.log('Refresh clicked');
+    console.log('REFRESH debug');
     refreshDebug();
 });
 
@@ -618,13 +609,13 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
     });
 });
 
-console.log('[READY] All listeners attached (FIXED VERSION)');
+console.log('[READY] All joystick/button listeners attached');
 genPresets();
 loadConfig();
 updateStatus();
 refreshDebug();
 setInterval(updateStatus,2000);
-console.log('[COMPLETE] Initialization finished');
+console.log('[COMPLETE] Initialization done');
 </script>
 </html>
 """
