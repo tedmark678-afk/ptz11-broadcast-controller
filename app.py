@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-PTZ11 Broadcast Controller v6.5
-FIXED: Joystick + Button events working
+PTZ11 Broadcast Controller v6.6
+FIXED: Joystick pointer release + boundary logic
 """
 
 import cv2, threading, socket, time, logging, json, os
@@ -224,7 +224,7 @@ HTML = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PTZ11 Controller v6.5</title>
+<title>PTZ11 Controller v6.6</title>
 <style>
 :root{--primary:#ff9800;--bg:#1a1a1a;--text:#fff;--border:#404040}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -248,7 +248,7 @@ body{width:100%;height:100vh;background:var(--bg);color:var(--text);font-family:
 .joystick-wrap{display:flex;justify-content:center;margin-bottom:12px}
 .joystick{position:relative;width:180px;height:180px;background:radial-gradient(circle at 35% 35%,#3d3d3d,#1a1a1a);border:3px solid var(--border);border-radius:50%;box-shadow:inset 0 2px 8px rgba(0,0,0,0.8),inset 0 -2px 8px rgba(255,255,255,0.1),0 8px 16px rgba(0,0,0,0.5);cursor:crosshair;user-select:none;display:flex;align-items:center;justify-content:center;touch-action:none}
 .joystick-ring{position:absolute;width:120px;height:120px;border:2px dashed var(--border);border-radius:50%;opacity:0.5}
-.joystick-knob{position:absolute;width:50px;height:50px;background:radial-gradient(circle at 30% 30%,#666,#222);border-radius:50%;box-shadow:0 4px 12px rgba(0,0,0,0.6),inset 0 2px 4px rgba(255,255,255,0.2);cursor:grab;z-index:10;transition:transform 0.02s ease-out;border:2px solid var(--border)}
+.joystick-knob{position:absolute;width:50px;height:50px;background:radial-gradient(circle at 30% 30%,#666,#222);border-radius:50%;box-shadow:0 4px 12px rgba(0,0,0,0.6),inset 0 2px 4px rgba(255,255,255,0.2);cursor:grab;z-index:10;transition:transform 0.05s ease-out;border:2px solid var(--border)}
 .joystick-knob.active{cursor:grabbing}
 .slider-group{display:flex;gap:10px;margin-bottom:12px}
 .slider-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
@@ -275,7 +275,7 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 <div class="header">
 <div>
 <h1>[CAMERA] PTZ11 Controller</h1>
-<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.5</p>
+<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.6</p>
 </div>
 <div style="display:flex;gap:20px">
 <div style="display:flex;gap:8px;font-size:12px"><span>Camera</span><div style="width:10px;height:10px;border-radius:50%;background:#aaa" id="cam-dot"></div></div>
@@ -372,10 +372,32 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 </div>
 </body>
 <script>
-let joyActive=false, lastCmd=null, joySpeedMult=0.5;
+let joyActive=false, joyPointerId=null, lastCmd=null, joySpeedMult=0.5, joyReleaseTimeout=null;
+
 const joypad=document.getElementById('joypad'),
       joyKnob=document.getElementById('joy-knob'),
       joySpeed=document.getElementById('joy-speed');
+
+function releaseJoystick() {
+    if(!joyActive) return;
+    console.log('Joystick RELEASE (manual)');
+    joyActive=false;
+    joyPointerId=null;
+    joyKnob.classList.remove('active');
+    updateJoyVisual(0,0);
+    fetch('/api/stop').then(r=>r.text()).catch(e=>console.error('Stop error:',e));
+    lastCmd=null;
+}
+
+function setReleaseTimeout() {
+    if(joyReleaseTimeout) clearTimeout(joyReleaseTimeout);
+    joyReleaseTimeout=setTimeout(() => {
+        if(joyActive) {
+            console.log('Joystick RELEASE (timeout fallback)');
+            releaseJoystick();
+        }
+    }, 1000);
+}
 
 joySpeed.addEventListener('input', e => {
     const val=parseInt(e.target.value);
@@ -402,15 +424,19 @@ function getJoyDir(x,y) {
 }
 
 joypad.addEventListener('pointerdown', e => {
+    if(joyActive) return;
     e.preventDefault();
     joyActive=true;
+    joyPointerId=e.pointerId;
     joyKnob.classList.add('active');
     joypad.setPointerCapture(e.pointerId);
-    console.log('Joystick captured');
+    setReleaseTimeout();
+    console.log('Joystick DOWN pointerId='+e.pointerId);
 });
 
 document.addEventListener('pointermove', e => {
-    if(!joyActive) return;
+    if(!joyActive || e.pointerId!==joyPointerId) return;
+    setReleaseTimeout();
     const rect=joypad.getBoundingClientRect();
     const centerX=rect.width/2, centerY=rect.height/2;
     let x=e.clientX-rect.left-centerX, y=e.clientY-rect.top-centerY;
@@ -418,51 +444,43 @@ document.addEventListener('pointermove', e => {
     if(dist>maxDist){const angle=Math.atan2(y,x);x=Math.cos(angle)*maxDist;y=Math.sin(angle)*maxDist;}
     updateJoyVisual(x,y);
     const dir=getJoyDir(x,y), url=`/api/move?p=${dir.p}&t=${dir.t}&s=${dir.s}`;
-    if(url!==lastCmd){
-        fetch(url).then(r=>r.text()).then(t=>console.log('Move:',t)).catch(e=>console.error('Move error:',e));
-        lastCmd=url;
-    }
+    if(url!==lastCmd){fetch(url).then(r=>r.text()).catch(e=>console.error('Move error:',e));lastCmd=url;}
 });
 
-document.addEventListener('pointerup', () => {
-    if(!joyActive) return;
-    joyActive=false;
-    joyKnob.classList.remove('active');
-    updateJoyVisual(0,0);
-    fetch('/api/stop').then(r=>r.text()).then(t=>console.log('Stop:',t)).catch(e=>console.error('Stop error:',e));
-    lastCmd=null;
-    console.log('Joystick released');
+document.addEventListener('pointerup', e => {
+    if(!joyActive || e.pointerId!==joyPointerId) return;
+    console.log('Joystick UP pointerId='+e.pointerId);
+    releaseJoystick();
+});
+
+joypad.addEventListener('pointerleave', e => {
+    if(!joyActive || e.pointerId!==joyPointerId) return;
+    console.log('Joystick LEAVE pointerId='+e.pointerId);
+    releaseJoystick();
+});
+
+document.addEventListener('pointercancel', e => {
+    if(!joyActive || e.pointerId!==joyPointerId) return;
+    console.log('Joystick CANCEL pointerId='+e.pointerId);
+    releaseJoystick();
 });
 
 document.querySelectorAll('.ctrl-slider').forEach(el=>{
     el.addEventListener('input', e => {
         const type=e.target.dataset.type, val=parseInt(e.target.value);
         if(type==='zoom'){
-            if(val===0){
-                fetch('/api/zoom?dir=stop').then(r=>r.text()).catch(e=>console.error('Zoom stop error:',e));
-                document.getElementById('zoom-val').textContent='STOP';
-            } else {
-                const dir=(val>0)?'in':'out', spd=Math.abs(val);
-                fetch(`/api/zoom?dir=${dir}&s=${spd}`).then(r=>r.text()).catch(e=>console.error('Zoom error:',e));
-                document.getElementById('zoom-val').textContent=dir.toUpperCase()+' '+spd;
-            }
-        } else {
-            if(val===0){
-                fetch('/api/focus?dir=stop').then(r=>r.text()).catch(e=>console.error('Focus stop error:',e));
-                document.getElementById('focus-val').textContent='AUTO';
-            } else {
-                const dir=(val>0)?'near':'far', spd=Math.abs(val);
-                fetch(`/api/focus?dir=${dir}&s=${spd}`).then(r=>r.text()).catch(e=>console.error('Focus error:',e));
-                document.getElementById('focus-val').textContent=dir.toUpperCase()+' '+spd;
-            }
+            if(val===0){fetch('/api/zoom?dir=stop').then(r=>r.text()).catch(e=>console.error('Zoom stop error:',e));document.getElementById('zoom-val').textContent='STOP';}
+            else{const dir=(val>0)?'in':'out', spd=Math.abs(val);fetch(`/api/zoom?dir=${dir}&s=${spd}`).then(r=>r.text()).catch(e=>console.error('Zoom error:',e));document.getElementById('zoom-val').textContent=dir.toUpperCase()+' '+spd;}
+        }else{
+            if(val===0){fetch('/api/focus?dir=stop').then(r=>r.text()).catch(e=>console.error('Focus stop error:',e));document.getElementById('focus-val').textContent='AUTO';}
+            else{const dir=(val>0)?'near':'far', spd=Math.abs(val);fetch(`/api/focus?dir=${dir}&s=${spd}`).then(r=>r.text()).catch(e=>console.error('Focus error:',e));document.getElementById('focus-val').textContent=dir.toUpperCase()+' '+spd;}
         }
     });
 });
 
 document.getElementById('stop-btn').addEventListener('click', () => {
     console.log('Stop all clicked');
-    if(joyActive){joyActive=false;joyKnob.classList.remove('active');updateJoyVisual(0,0);}
-    fetch('/api/stop').then(r=>r.text()).catch(e=>console.error('Stop error:',e));
+    releaseJoystick();
     document.getElementById('zoom').value=0;
     document.getElementById('focus').value=0;
     document.getElementById('zoom-val').textContent='STOP';
@@ -561,10 +579,10 @@ function updateStatus(){
                 streamDot.style.background='#4CAF50';
                 streamInfo.textContent='* LIVE '+d.stream_fps+' FPS';
                 streamInfo.style.color='#4CAF50';
-            } else if(d.stream_status==='buffering'){
+            }else if(d.stream_status==='buffering'){
                 streamDot.style.background='var(--primary)';
                 streamInfo.textContent='* BUFFERING';
-            } else {
+            }else{
                 streamDot.style.background='#f44336';
                 streamInfo.textContent='* OFFLINE';
             }
@@ -581,15 +599,15 @@ function refreshDebug(){
     fetch('/api/status')
         .then(r=>r.json())
         .then(d=>{
-            let text='PTZ11 STATUS\\n';
-            text+='================\\n';
-            text+='Camera: '+d.cam_ip+':'+d.cam_port+'\\n';
-            text+='Reachable: '+(d.reachable?'YES':'NO')+'\\n';
-            text+='Stream: '+d.stream_status.toUpperCase()+'\\n';
-            text+='FPS: '+d.stream_fps+'\\n';
-            text+='Pan: '+d.pan+' Tilt: '+d.tilt+'\\n';
-            text+='Zoom: '+d.zoom+' Focus: '+d.focus+'\\n';
-            text+='Preset: '+d.preset_active+'\\n';
+            let text='PTZ11 STATUS\n';
+            text+='================\n';
+            text+='Camera: '+d.cam_ip+':'+d.cam_port+'\n';
+            text+='Reachable: '+(d.reachable?'YES':'NO')+'\n';
+            text+='Stream: '+d.stream_status.toUpperCase()+'\n';
+            text+='FPS: '+d.stream_fps+'\n';
+            text+='Pan: '+d.pan+' Tilt: '+d.tilt+'\n';
+            text+='Zoom: '+d.zoom+' Focus: '+d.focus+'\n';
+            text+='Preset: '+d.preset_active+'\n';
             document.getElementById('debug-info').textContent=text;
         })
         .catch(err=>{document.getElementById('debug-info').textContent='Error: '+err;});
