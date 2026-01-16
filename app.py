@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-PTZ11 Broadcast Controller v6.3
-FIXED: Pointer capture for reliable joystick tracking
+PTZ11 Broadcast Controller v6.4
+FIXED: UTF-8 emoji encoding for Python 3.14
 """
 
 import cv2, threading, socket, time, logging, json, os
@@ -215,7 +215,7 @@ HTML = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PTZ11 Controller v6.3</title>
+<title>PTZ11 Controller v6.4</title>
 <style>
 :root{--primary:#ff9800;--bg:#1a1a1a;--text:#fff;--border:#404040}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -262,8 +262,8 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 <div class="container">
 <div class="header">
 <div>
-<h1>\ud83c\udfa5 PTZ11 Controller</h1>
-<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.3</p>
+<h1>[CAMERA] PTZ11 Controller</h1>
+<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.4</p>
 </div>
 <div style="display:flex;gap:20px">
 <div style="display:flex;gap:8px;font-size:12px"><span>Camera</span><div style="width:10px;height:10px;border-radius:50%;background:#aaa" id="cam-dot"></div></div>
@@ -273,7 +273,7 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 <div class="content">
 <div class="video">
 <img src="/video" alt="RTSP">
-<div class="video-overlay" id="stream-info">● INITIALIZING</div>
+<div class="video-overlay" id="stream-info">* INITIALIZING</div>
 </div>
 <div class="panel">
 <div class="tabs">
@@ -314,10 +314,10 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 </div>
 </div>
 <div class="section">
-<div class="btn-group"><button class="btn primary" onclick="stopAll()">\u23f9 STOP ALL</button></div>
+<div class="btn-group"><button class="btn primary" onclick="stopAll()">[STOP] STOP ALL</button></div>
 <div class="btn-group two">
-<button class="btn" onclick="homePos()">\ud83c\udfe0 Home</button>
-<button class="btn" onclick="autoFocus()">\ud83c\udfaf Auto Focus</button>
+<button class="btn" onclick="homePos()">[HOME] Home</button>
+<button class="btn" onclick="autoFocus()">[FOCUS] Auto Focus</button>
 </div>
 </div>
 </div>
@@ -343,15 +343,15 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 <label style="font-size:11px;font-weight:600;text-transform:uppercase;display:block;margin-bottom:4px">RTSP URL</label>
 <input type="text" id="rtsp-url" style="width:100%;padding:8px;background:#1a1a1a;border:2px solid var(--border);color:var(--text);border-radius:4px;font-family:monospace;font-size:12px">
 </div>
-<div class="btn-group"><button class="btn primary" onclick="saveConfig()" style="width:100%">\ud83d\udcbe Save</button></div>
-<div class="btn-group"><button class="btn" onclick="testConn()" style="width:100%">\ud83d\udce1 Test</button></div>
+<div class="btn-group"><button class="btn primary" onclick="saveConfig()" style="width:100%">[SAVE] Save</button></div>
+<div class="btn-group"><button class="btn" onclick="testConn()" style="width:100%">[TEST] Test</button></div>
 </div>
 </div>
 <div class="tab-pane" id="debug">
 <div class="section">
 <div class="section-title">System Status</div>
 <div style="background:#1a1a1a;border:2px solid var(--border);padding:8px;border-radius:4px;font-family:monospace;font-size:11px;color:#0f0;max-height:180px;overflow-y:auto;margin-bottom:8px;white-space:pre-wrap;word-break:break-all" id="debug-info">Initializing...</div>
-<button class="btn primary" onclick="refreshDebug()" style="width:100%">\ud83d\udd04 Refresh</button>
+<button class="btn primary" onclick="refreshDebug()" style="width:100%">[REFRESH] Refresh</button>
 </div>
 </div>
 </div>
@@ -394,7 +394,6 @@ joypad.addEventListener('pointerdown', e => {
     joyActive=true;
     joyKnob.classList.add('active');
     joypad.setPointerCapture(e.pointerId);
-    handleJoyMove(e);
 });
 
 document.addEventListener('pointermove', e => {
@@ -450,9 +449,9 @@ function presetSet(num){if(confirm(`Save Preset ${num}?`)){fetch(`/api/preset/se
 function clearPresets(){if(confirm('Delete ALL?')){for(let i=1;i<=32;i++)fetch(`/api/preset/delete?num=${i}`).catch(()=>{});alert('Cleared');}}
 function loadConfig(){fetch('/api/config').then(r=>r.json()).then(d=>{document.getElementById('cam-ip').value=d.cam_ip;document.getElementById('cam-port').value=d.cam_port;document.getElementById('rtsp-url').value=d.rtsp_url;}).catch(()=>{});}
 function saveConfig(){const config={cam_ip:document.getElementById('cam-ip').value,cam_port:parseInt(document.getElementById('cam-port').value),rtsp_url:document.getElementById('rtsp-url').value};fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)}).then(r=>r.json()).then(d=>{alert(d.success?'Saved!':'Error');}).catch(err=>alert('Error: '+err));}
-function testConn(){const btn=event.target;btn.disabled=true;btn.textContent='Testing...';fetch('/api/status').then(r=>r.json()).then(d=>{alert(d.reachable?'✓ ONLINE':'✗ OFFLINE');}).catch(()=>alert('✗ Failed')).finally(()=>{btn.disabled=false;btn.textContent='📡 Test';});}
-function updateStatus(){fetch('/api/status').then(r=>r.json()).then(d=>{const camDot=document.getElementById('cam-dot'),streamDot=document.getElementById('stream-dot'),streamInfo=document.getElementById('stream-info');camDot.style.background=d.reachable?'#4CAF50':'#f44336';if(d.stream_status==='live'){streamDot.style.background='#4CAF50';streamInfo.textContent='● LIVE '+d.stream_fps+' FPS';streamInfo.style.color='#4CAF50';}else if(d.stream_status==='buffering'){streamDot.style.background='var(--primary)';streamInfo.textContent='⟳ BUFFERING';}else{streamDot.style.background='#f44336';streamInfo.textContent='● OFFLINE';}}).catch(()=>{});}
-function refreshDebug(){fetch('/api/status').then(r=>r.json()).then(d=>{let text='PTZ11 STATUS\\n';text+='═════════════════\\n';text+='Camera: '+d.cam_ip+':'+d.cam_port+'\\n';text+='Reachable: '+(d.reachable?'✓':'✗')+'\\n';text+='Stream: '+d.stream_status.toUpperCase()+'\\n';text+='FPS: '+d.stream_fps+'\\n';text+='Pan: '+d.pan+' Tilt: '+d.tilt+'\\n';text+='Zoom: '+d.zoom+' Focus: '+d.focus+'\\n';text+='Preset: '+d.preset_active+'\\n';document.getElementById('debug-info').textContent=text;}).catch(err=>{document.getElementById('debug-info').textContent='Error: '+err;});}
+function testConn(){const btn=event.target;btn.disabled=true;btn.textContent='Testing...';fetch('/api/status').then(r=>r.json()).then(d=>{alert(d.reachable?'OK ONLINE':'NOT OFFLINE');}).catch(()=>alert('FAILED')).finally(()=>{btn.disabled=false;btn.textContent='[TEST] Test';});}
+function updateStatus(){fetch('/api/status').then(r=>r.json()).then(d=>{const camDot=document.getElementById('cam-dot'),streamDot=document.getElementById('stream-dot'),streamInfo=document.getElementById('stream-info');camDot.style.background=d.reachable?'#4CAF50':'#f44336';if(d.stream_status==='live'){streamDot.style.background='#4CAF50';streamInfo.textContent='* LIVE '+d.stream_fps+' FPS';streamInfo.style.color='#4CAF50';}else if(d.stream_status==='buffering'){streamDot.style.background='var(--primary)';streamInfo.textContent='* BUFFERING';}else{streamDot.style.background='#f44336';streamInfo.textContent='* OFFLINE';}}).catch(()=>{});}
+function refreshDebug(){fetch('/api/status').then(r=>r.json()).then(d=>{let text='PTZ11 STATUS\n';text+='================\n';text+='Camera: '+d.cam_ip+':'+d.cam_port+'\n';text+='Reachable: '+(d.reachable?'YES':'NO')+'\n';text+='Stream: '+d.stream_status.toUpperCase()+'\n';text+='FPS: '+d.stream_fps+'\n';text+='Pan: '+d.pan+' Tilt: '+d.tilt+'\n';text+='Zoom: '+d.zoom+' Focus: '+d.focus+'\n';text+='Preset: '+d.preset_active+'\n';document.getElementById('debug-info').textContent=text;}).catch(err=>{document.getElementById('debug-info').textContent='Error: '+err;});}
 document.querySelectorAll('.tab-btn').forEach(btn=>{btn.addEventListener('click',()=>{const tab=btn.dataset.tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));btn.classList.add('active');document.getElementById(tab).classList.add('active');});});
 window.addEventListener('load',()=>{genPresets();loadConfig();updateStatus();refreshDebug();setInterval(updateStatus,2000);});
 </script>
