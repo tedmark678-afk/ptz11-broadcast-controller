@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-PTZ11 Broadcast Controller v6.6
-FIXED: Joystick pointer release + boundary logic
+PTZ11 Broadcast Controller v6.7
+FIXED: Button inactive bug - proper DOM ready handling
 """
 
 import cv2, threading, socket, time, logging, json, os
@@ -224,7 +224,7 @@ HTML = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PTZ11 Controller v6.6</title>
+<title>PTZ11 Controller v6.7</title>
 <style>
 :root{--primary:#ff9800;--bg:#1a1a1a;--text:#fff;--border:#404040}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -275,7 +275,7 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 <div class="header">
 <div>
 <h1>[CAMERA] PTZ11 Controller</h1>
-<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.6</p>
+<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.7</p>
 </div>
 <div style="display:flex;gap:20px">
 <div style="display:flex;gap:8px;font-size:12px"><span>Camera</span><div style="width:10px;height:10px;border-radius:50%;background:#aaa" id="cam-dot"></div></div>
@@ -374,262 +374,272 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 <script>
 let joyActive=false, joyPointerId=null, lastCmd=null, joySpeedMult=0.5, joyReleaseTimeout=null;
 
-const joypad=document.getElementById('joypad'),
-      joyKnob=document.getElementById('joy-knob'),
-      joySpeed=document.getElementById('joy-speed');
-
-function releaseJoystick() {
-    if(!joyActive) return;
-    console.log('Joystick RELEASE (manual)');
-    joyActive=false;
-    joyPointerId=null;
-    joyKnob.classList.remove('active');
-    updateJoyVisual(0,0);
-    fetch('/api/stop').then(r=>r.text()).catch(e=>console.error('Stop error:',e));
-    lastCmd=null;
-}
-
-function setReleaseTimeout() {
-    if(joyReleaseTimeout) clearTimeout(joyReleaseTimeout);
-    joyReleaseTimeout=setTimeout(() => {
-        if(joyActive) {
-            console.log('Joystick RELEASE (timeout fallback)');
-            releaseJoystick();
-        }
-    }, 1000);
-}
-
-joySpeed.addEventListener('input', e => {
-    const val=parseInt(e.target.value);
-    joySpeedMult=val/10;
-    const labels=['Very Slow','Slow','Slow','Normal','Normal','Medium','Fast','Fast','Very Fast','Max'];
-    document.getElementById('joy-spd').textContent=labels[val-1]+' ('+val+'/10)';
-});
-
-function updateJoyVisual(x,y) {
-    const tx=x*0.4, ty=y*0.4;
-    joyKnob.style.transform=`translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px))`;
-}
-
-function getJoyDir(x,y) {
-    if(x===0&&y===0) return {p:'03',t:'03',s:1};
-    const angle=Math.atan2(y,x)*(180/Math.PI), dist=Math.sqrt(x*x+y*y), maxDist=70;
-    const speed=Math.max(1,Math.min(24,Math.floor((dist/maxDist)*24*joySpeedMult)));
-    let p='03', t='03';
-    if(angle>-45&&angle<=45){p='02';t=(angle>0)?'02':(angle<0)?'01':'03';}
-    else if(angle>45&&angle<=135){t='02';p=(angle<90)?'02':'01';}
-    else if(angle>135||angle<=-135){p='01';t=(angle>0)?'02':'01';}
-    else if(angle>-135&&angle<=-45){t='01';p=(angle>-90)?'02':'01';}
-    return {p,t,s:speed};
-}
-
-joypad.addEventListener('pointerdown', e => {
-    if(joyActive) return;
-    e.preventDefault();
-    joyActive=true;
-    joyPointerId=e.pointerId;
-    joyKnob.classList.add('active');
-    joypad.setPointerCapture(e.pointerId);
-    setReleaseTimeout();
-    console.log('Joystick DOWN pointerId='+e.pointerId);
-});
-
-document.addEventListener('pointermove', e => {
-    if(!joyActive || e.pointerId!==joyPointerId) return;
-    setReleaseTimeout();
-    const rect=joypad.getBoundingClientRect();
-    const centerX=rect.width/2, centerY=rect.height/2;
-    let x=e.clientX-rect.left-centerX, y=e.clientY-rect.top-centerY;
-    const dist=Math.sqrt(x*x+y*y), maxDist=70;
-    if(dist>maxDist){const angle=Math.atan2(y,x);x=Math.cos(angle)*maxDist;y=Math.sin(angle)*maxDist;}
-    updateJoyVisual(x,y);
-    const dir=getJoyDir(x,y), url=`/api/move?p=${dir.p}&t=${dir.t}&s=${dir.s}`;
-    if(url!==lastCmd){fetch(url).then(r=>r.text()).catch(e=>console.error('Move error:',e));lastCmd=url;}
-});
-
-document.addEventListener('pointerup', e => {
-    if(!joyActive || e.pointerId!==joyPointerId) return;
-    console.log('Joystick UP pointerId='+e.pointerId);
-    releaseJoystick();
-});
-
-joypad.addEventListener('pointerleave', e => {
-    if(!joyActive || e.pointerId!==joyPointerId) return;
-    console.log('Joystick LEAVE pointerId='+e.pointerId);
-    releaseJoystick();
-});
-
-document.addEventListener('pointercancel', e => {
-    if(!joyActive || e.pointerId!==joyPointerId) return;
-    console.log('Joystick CANCEL pointerId='+e.pointerId);
-    releaseJoystick();
-});
-
-document.querySelectorAll('.ctrl-slider').forEach(el=>{
-    el.addEventListener('input', e => {
-        const type=e.target.dataset.type, val=parseInt(e.target.value);
-        if(type==='zoom'){
-            if(val===0){fetch('/api/zoom?dir=stop').then(r=>r.text()).catch(e=>console.error('Zoom stop error:',e));document.getElementById('zoom-val').textContent='STOP';}
-            else{const dir=(val>0)?'in':'out', spd=Math.abs(val);fetch(`/api/zoom?dir=${dir}&s=${spd}`).then(r=>r.text()).catch(e=>console.error('Zoom error:',e));document.getElementById('zoom-val').textContent=dir.toUpperCase()+' '+spd;}
-        }else{
-            if(val===0){fetch('/api/focus?dir=stop').then(r=>r.text()).catch(e=>console.error('Focus stop error:',e));document.getElementById('focus-val').textContent='AUTO';}
-            else{const dir=(val>0)?'near':'far', spd=Math.abs(val);fetch(`/api/focus?dir=${dir}&s=${spd}`).then(r=>r.text()).catch(e=>console.error('Focus error:',e));document.getElementById('focus-val').textContent=dir.toUpperCase()+' '+spd;}
-        }
-    });
-});
-
-document.getElementById('stop-btn').addEventListener('click', () => {
-    console.log('Stop all clicked');
-    releaseJoystick();
-    document.getElementById('zoom').value=0;
-    document.getElementById('focus').value=0;
-    document.getElementById('zoom-val').textContent='STOP';
-    document.getElementById('focus-val').textContent='AUTO';
-});
-
-document.getElementById('home-btn').addEventListener('click', () => {
-    console.log('Home clicked');
-    fetch('/api/preset/call?num=1').then(()=>updateStatus()).catch(e=>console.error('Home error:',e));
-});
-
-document.getElementById('focus-btn').addEventListener('click', () => {
-    console.log('Auto focus clicked');
-    fetch('/api/focus?dir=stop').then(r=>r.text()).catch(e=>console.error('Focus error:',e));
-    document.getElementById('focus').value=0;
-    document.getElementById('focus-val').textContent='AUTO';
-});
-
-document.getElementById('clear-btn').addEventListener('click', () => {
-    if(confirm('Delete ALL presets?')){
-        for(let i=1;i<=32;i++)fetch(`/api/preset/delete?num=${i}`).catch(e=>console.error('Delete error:',e));
-        alert('Cleared');
+function initializeApp() {
+    const joypad=document.getElementById('joypad');
+    const joyKnob=document.getElementById('joy-knob');
+    const joySpeed=document.getElementById('joy-speed');
+    
+    if(!joypad || !joyKnob || !joySpeed) {
+        console.error('ERROR: Critical DOM elements missing!');
+        return;
     }
-});
-
-function genPresets(){
-    const grid=document.getElementById('preset-grid');
-    grid.innerHTML='';
-    for(let i=1;i<=32;i++){
-        const btn=document.createElement('button');
-        btn.className='preset-btn';
-        btn.textContent='P'+i;
-        btn.id='preset-'+i;
-        btn.addEventListener('click',()=>{
-            console.log('Preset call:',i);
-            fetch(`/api/preset/call?num=${i}`).then(r=>r.json()).then(d=>{
-                document.querySelectorAll('.preset-btn').forEach(b=>b.classList.remove('active'));
-                document.getElementById('preset-'+i).classList.add('active');
-                updateStatus();
-            }).catch(e=>console.error('Preset call error:',e));
-        });
-        btn.addEventListener('dblclick',()=>{
-            if(confirm(`Save Preset ${i}?`)){
-                console.log('Preset set:',i);
-                fetch(`/api/preset/set?num=${i}`).then(r=>r.json()).then(d=>{
-                    alert(d.success?'Saved!':'Error');
-                }).catch(e=>{console.error('Preset set error:',e);alert('Error');});
+    
+    function releaseJoystick() {
+        if(!joyActive) return;
+        console.log('Joystick RELEASE (manual)');
+        joyActive=false;
+        joyPointerId=null;
+        joyKnob.classList.remove('active');
+        updateJoyVisual(0,0);
+        fetch('/api/stop').then(r=>r.text()).catch(e=>console.error('Stop error:',e));
+        lastCmd=null;
+    }
+    
+    function setReleaseTimeout() {
+        if(joyReleaseTimeout) clearTimeout(joyReleaseTimeout);
+        joyReleaseTimeout=setTimeout(() => {
+            if(joyActive) {
+                console.log('Joystick RELEASE (timeout fallback)');
+                releaseJoystick();
             }
-        });
-        grid.appendChild(btn);
+        }, 1000);
     }
-}
-
-function loadConfig(){
-    fetch('/api/config').then(r=>r.json()).then(d=>{
-        document.getElementById('cam-ip').value=d.cam_ip;
-        document.getElementById('cam-port').value=d.cam_port;
-        document.getElementById('rtsp-url').value=d.rtsp_url;
-    }).catch(e=>console.error('Config load error:',e));
-}
-
-document.getElementById('save-btn').addEventListener('click', () => {
-    console.log('Config save clicked');
-    const config={
-        cam_ip:document.getElementById('cam-ip').value,
-        cam_port:parseInt(document.getElementById('cam-port').value),
-        rtsp_url:document.getElementById('rtsp-url').value
-    };
-    fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)})
-        .then(r=>r.json())
-        .then(d=>{alert(d.success?'Saved!':'Error');})
-        .catch(err=>{console.error('Config save error:',err);alert('Error: '+err);});
-});
-
-document.getElementById('test-btn').addEventListener('click', () => {
-    console.log('Test clicked');
-    const btn=document.getElementById('test-btn');
-    btn.disabled=true;
-    btn.textContent='Testing...';
-    fetch('/api/status')
-        .then(r=>r.json())
-        .then(d=>{alert(d.reachable?'OK ONLINE':'NOT OFFLINE');})
-        .catch(e=>{console.error('Test error:',e);alert('FAILED');})
-        .finally(()=>{btn.disabled=false;btn.textContent='[TEST] Test';});
-});
-
-function updateStatus(){
-    fetch('/api/status')
-        .then(r=>r.json())
-        .then(d=>{
-            const camDot=document.getElementById('cam-dot'),
-                  streamDot=document.getElementById('stream-dot'),
-                  streamInfo=document.getElementById('stream-info');
-            camDot.style.background=d.reachable?'#4CAF50':'#f44336';
-            if(d.stream_status==='live'){
-                streamDot.style.background='#4CAF50';
-                streamInfo.textContent='* LIVE '+d.stream_fps+' FPS';
-                streamInfo.style.color='#4CAF50';
-            }else if(d.stream_status==='buffering'){
-                streamDot.style.background='var(--primary)';
-                streamInfo.textContent='* BUFFERING';
+    
+    joySpeed.addEventListener('input', e => {
+        const val=parseInt(e.target.value);
+        joySpeedMult=val/10;
+        const labels=['Very Slow','Slow','Slow','Normal','Normal','Medium','Fast','Fast','Very Fast','Max'];
+        document.getElementById('joy-spd').textContent=labels[val-1]+' ('+val+'/10)';
+    });
+    
+    function updateJoyVisual(x,y) {
+        const tx=x*0.4, ty=y*0.4;
+        joyKnob.style.transform=`translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px))`;
+    }
+    
+    function getJoyDir(x,y) {
+        if(x===0&&y===0) return {p:'03',t:'03',s:1};
+        const angle=Math.atan2(y,x)*(180/Math.PI), dist=Math.sqrt(x*x+y*y), maxDist=70;
+        const speed=Math.max(1,Math.min(24,Math.floor((dist/maxDist)*24*joySpeedMult)));
+        let p='03', t='03';
+        if(angle>-45&&angle<=45){p='02';t=(angle>0)?'02':(angle<0)?'01':'03';}
+        else if(angle>45&&angle<=135){t='02';p=(angle<90)?'02':'01';}
+        else if(angle>135||angle<=-135){p='01';t=(angle>0)?'02':'01';}
+        else if(angle>-135&&angle<=-45){t='01';p=(angle>-90)?'02':'01';}
+        return {p,t,s:speed};
+    }
+    
+    joypad.addEventListener('pointerdown', e => {
+        if(joyActive) return;
+        e.preventDefault();
+        joyActive=true;
+        joyPointerId=e.pointerId;
+        joyKnob.classList.add('active');
+        joypad.setPointerCapture(e.pointerId);
+        setReleaseTimeout();
+        console.log('Joystick DOWN pointerId='+e.pointerId);
+    });
+    
+    document.addEventListener('pointermove', e => {
+        if(!joyActive || e.pointerId!==joyPointerId) return;
+        setReleaseTimeout();
+        const rect=joypad.getBoundingClientRect();
+        const centerX=rect.width/2, centerY=rect.height/2;
+        let x=e.clientX-rect.left-centerX, y=e.clientY-rect.top-centerY;
+        const dist=Math.sqrt(x*x+y*y), maxDist=70;
+        if(dist>maxDist){const angle=Math.atan2(y,x);x=Math.cos(angle)*maxDist;y=Math.sin(angle)*maxDist;}
+        updateJoyVisual(x,y);
+        const dir=getJoyDir(x,y), url=`/api/move?p=${dir.p}&t=${dir.t}&s=${dir.s}`;
+        if(url!==lastCmd){fetch(url).then(r=>r.text()).catch(e=>console.error('Move error:',e));lastCmd=url;}
+    });
+    
+    document.addEventListener('pointerup', e => {
+        if(!joyActive || e.pointerId!==joyPointerId) return;
+        console.log('Joystick UP pointerId='+e.pointerId);
+        releaseJoystick();
+    });
+    
+    joypad.addEventListener('pointerleave', e => {
+        if(!joyActive || e.pointerId!==joyPointerId) return;
+        console.log('Joystick LEAVE pointerId='+e.pointerId);
+        releaseJoystick();
+    });
+    
+    document.addEventListener('pointercancel', e => {
+        if(!joyActive || e.pointerId!==joyPointerId) return;
+        console.log('Joystick CANCEL pointerId='+e.pointerId);
+        releaseJoystick();
+    });
+    
+    document.querySelectorAll('.ctrl-slider').forEach(el=>{
+        el.addEventListener('input', e => {
+            const type=e.target.dataset.type, val=parseInt(e.target.value);
+            if(type==='zoom'){
+                if(val===0){fetch('/api/zoom?dir=stop').then(r=>r.text()).catch(e=>console.error('Zoom stop error:',e));document.getElementById('zoom-val').textContent='STOP';}
+                else{const dir=(val>0)?'in':'out', spd=Math.abs(val);fetch(`/api/zoom?dir=${dir}&s=${spd}`).then(r=>r.text()).catch(e=>console.error('Zoom error:',e));document.getElementById('zoom-val').textContent=dir.toUpperCase()+' '+spd;}
             }else{
-                streamDot.style.background='#f44336';
-                streamInfo.textContent='* OFFLINE';
+                if(val===0){fetch('/api/focus?dir=stop').then(r=>r.text()).catch(e=>console.error('Focus stop error:',e));document.getElementById('focus-val').textContent='AUTO';}
+                else{const dir=(val>0)?'near':'far', spd=Math.abs(val);fetch(`/api/focus?dir=${dir}&s=${spd}`).then(r=>r.text()).catch(e=>console.error('Focus error:',e));document.getElementById('focus-val').textContent=dir.toUpperCase()+' '+spd;}
             }
-        })
-        .catch(e=>console.error('Status error:',e));
-}
-
-document.getElementById('refresh-btn').addEventListener('click', () => {
-    console.log('Refresh clicked');
-    refreshDebug();
-});
-
-function refreshDebug(){
-    fetch('/api/status')
-        .then(r=>r.json())
-        .then(d=>{
-            let text='PTZ11 STATUS\n';
-            text+='================\n';
-            text+='Camera: '+d.cam_ip+':'+d.cam_port+'\n';
-            text+='Reachable: '+(d.reachable?'YES':'NO')+'\n';
-            text+='Stream: '+d.stream_status.toUpperCase()+'\n';
-            text+='FPS: '+d.stream_fps+'\n';
-            text+='Pan: '+d.pan+' Tilt: '+d.tilt+'\n';
-            text+='Zoom: '+d.zoom+' Focus: '+d.focus+'\n';
-            text+='Preset: '+d.preset_active+'\n';
-            document.getElementById('debug-info').textContent=text;
-        })
-        .catch(err=>{document.getElementById('debug-info').textContent='Error: '+err;});
-}
-
-document.querySelectorAll('.tab-btn').forEach(btn=>{
-    btn.addEventListener('click',()=>{
-        const tab=btn.dataset.tab;
-        document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-        document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById(tab).classList.add('active');
+        });
     });
-});
-
-window.addEventListener('load',()=>{
-    console.log('Page loaded');
+    
+    document.getElementById('stop-btn').addEventListener('click', () => {
+        console.log('Stop all clicked');
+        releaseJoystick();
+        document.getElementById('zoom').value=0;
+        document.getElementById('focus').value=0;
+        document.getElementById('zoom-val').textContent='STOP';
+        document.getElementById('focus-val').textContent='AUTO';
+    });
+    
+    document.getElementById('home-btn').addEventListener('click', () => {
+        console.log('Home clicked');
+        fetch('/api/preset/call?num=1').then(()=>updateStatus()).catch(e=>console.error('Home error:',e));
+    });
+    
+    document.getElementById('focus-btn').addEventListener('click', () => {
+        console.log('Auto focus clicked');
+        fetch('/api/focus?dir=stop').then(r=>r.text()).catch(e=>console.error('Focus error:',e));
+        document.getElementById('focus').value=0;
+        document.getElementById('focus-val').textContent='AUTO';
+    });
+    
+    document.getElementById('clear-btn').addEventListener('click', () => {
+        if(confirm('Delete ALL presets?')){
+            for(let i=1;i<=32;i++)fetch(`/api/preset/delete?num=${i}`).catch(e=>console.error('Delete error:',e));
+            alert('Cleared');
+        }
+    });
+    
+    function genPresets(){
+        const grid=document.getElementById('preset-grid');
+        grid.innerHTML='';
+        for(let i=1;i<=32;i++){
+            const btn=document.createElement('button');
+            btn.className='preset-btn';
+            btn.textContent='P'+i;
+            btn.id='preset-'+i;
+            btn.addEventListener('click',()=>{
+                console.log('Preset call:',i);
+                fetch(`/api/preset/call?num=${i}`).then(r=>r.json()).then(d=>{
+                    document.querySelectorAll('.preset-btn').forEach(b=>b.classList.remove('active'));
+                    document.getElementById('preset-'+i).classList.add('active');
+                    updateStatus();
+                }).catch(e=>console.error('Preset call error:',e));
+            });
+            btn.addEventListener('dblclick',()=>{
+                if(confirm(`Save Preset ${i}?`)){
+                    console.log('Preset set:',i);
+                    fetch(`/api/preset/set?num=${i}`).then(r=>r.json()).then(d=>{
+                        alert(d.success?'Saved!':'Error');
+                    }).catch(e=>{console.error('Preset set error:',e);alert('Error');});
+                }
+            });
+            grid.appendChild(btn);
+        }
+    }
+    
+    function loadConfig(){
+        fetch('/api/config').then(r=>r.json()).then(d=>{
+            document.getElementById('cam-ip').value=d.cam_ip;
+            document.getElementById('cam-port').value=d.cam_port;
+            document.getElementById('rtsp-url').value=d.rtsp_url;
+        }).catch(e=>console.error('Config load error:',e));
+    }
+    
+    document.getElementById('save-btn').addEventListener('click', () => {
+        console.log('Config save clicked');
+        const config={
+            cam_ip:document.getElementById('cam-ip').value,
+            cam_port:parseInt(document.getElementById('cam-port').value),
+            rtsp_url:document.getElementById('rtsp-url').value
+        };
+        fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)})
+            .then(r=>r.json())
+            .then(d=>{alert(d.success?'Saved!':'Error');})
+            .catch(err=>{console.error('Config save error:',err);alert('Error: '+err);});
+    });
+    
+    document.getElementById('test-btn').addEventListener('click', () => {
+        console.log('Test clicked');
+        const btn=document.getElementById('test-btn');
+        btn.disabled=true;
+        btn.textContent='Testing...';
+        fetch('/api/status')
+            .then(r=>r.json())
+            .then(d=>{alert(d.reachable?'OK ONLINE':'NOT OFFLINE');})
+            .catch(e=>{console.error('Test error:',e);alert('FAILED');})
+            .finally(()=>{btn.disabled=false;btn.textContent='[TEST] Test';});
+    });
+    
+    function updateStatus(){
+        fetch('/api/status')
+            .then(r=>r.json())
+            .then(d=>{
+                const camDot=document.getElementById('cam-dot'),
+                      streamDot=document.getElementById('stream-dot'),
+                      streamInfo=document.getElementById('stream-info');
+                camDot.style.background=d.reachable?'#4CAF50':'#f44336';
+                if(d.stream_status==='live'){
+                    streamDot.style.background='#4CAF50';
+                    streamInfo.textContent='* LIVE '+d.stream_fps+' FPS';
+                    streamInfo.style.color='#4CAF50';
+                }else if(d.stream_status==='buffering'){
+                    streamDot.style.background='var(--primary)';
+                    streamInfo.textContent='* BUFFERING';
+                }else{
+                    streamDot.style.background='#f44336';
+                    streamInfo.textContent='* OFFLINE';
+                }
+            })
+            .catch(e=>console.error('Status error:',e));
+    }
+    
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+        console.log('Refresh clicked');
+        refreshDebug();
+    });
+    
+    function refreshDebug(){
+        fetch('/api/status')
+            .then(r=>r.json())
+            .then(d=>{
+                let text='PTZ11 STATUS\n';
+                text+='================\n';
+                text+='Camera: '+d.cam_ip+':'+d.cam_port+'\n';
+                text+='Reachable: '+(d.reachable?'YES':'NO')+'\n';
+                text+='Stream: '+d.stream_status.toUpperCase()+'\n';
+                text+='FPS: '+d.stream_fps+'\n';
+                text+='Pan: '+d.pan+' Tilt: '+d.tilt+'\n';
+                text+='Zoom: '+d.zoom+' Focus: '+d.focus+'\n';
+                text+='Preset: '+d.preset_active+'\n';
+                document.getElementById('debug-info').textContent=text;
+            })
+            .catch(err=>{document.getElementById('debug-info').textContent='Error: '+err;});
+    }
+    
+    document.querySelectorAll('.tab-btn').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+            const tab=btn.dataset.tab;
+            document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(tab).classList.add('active');
+        });
+    });
+    
+    console.log('App initialized successfully');
     genPresets();
     loadConfig();
     updateStatus();
     refreshDebug();
     setInterval(updateStatus,2000);
+}
+
+window.addEventListener('load', () => {
+    console.log('Window load event triggered');
+    initializeApp();
 });
 </script>
 </html>
