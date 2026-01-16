@@ -363,8 +363,6 @@ def status():
         'last_cmd': state['last_cmd']
     })
 
-# ============= UI HTML/CSS/JS =============
-
 HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -406,7 +404,6 @@ HTML = """<!DOCTYPE html>
             height: 100vh;
         }
 
-        /* HEADER */
         .header {
             background: linear-gradient(135deg, #000 0%, #1a1a1a 100%);
             border-bottom: 2px solid var(--primary);
@@ -470,7 +467,6 @@ HTML = """<!DOCTYPE html>
             50% { opacity: 0.5; }
         }
 
-        /* MAIN CONTENT */
         .content {
             display: flex;
             flex: 1;
@@ -479,7 +475,6 @@ HTML = """<!DOCTYPE html>
             overflow: hidden;
         }
 
-        /* VIDEO SECTION */
         .video-section {
             flex: 1;
             display: flex;
@@ -521,7 +516,6 @@ HTML = """<!DOCTYPE html>
             color: var(--success);
         }
 
-        /* CONTROL PANEL */
         .control-panel {
             width: 360px;
             background: var(--bg-panel);
@@ -575,7 +569,6 @@ HTML = """<!DOCTYPE html>
             display: block;
         }
 
-        /* JOYSTICK */
         .control-section {
             margin-bottom: 16px;
         }
@@ -613,6 +606,7 @@ HTML = """<!DOCTYPE html>
             display: flex;
             align-items: center;
             justify-content: center;
+            touch-action: none;
         }
 
         .joystick-ring {
@@ -636,7 +630,7 @@ HTML = """<!DOCTYPE html>
                 inset 0 -2px 4px rgba(0,0,0,0.8);
             cursor: grab;
             z-index: 10;
-            transition: transform 0.05s ease-out;
+            transition: transform 0.02s ease-out;
             border: 2px solid var(--border);
         }
 
@@ -644,7 +638,6 @@ HTML = """<!DOCTYPE html>
             cursor: grabbing;
         }
 
-        /* SLIDERS */
         .slider-group {
             display: flex;
             gap: 10px;
@@ -711,7 +704,6 @@ HTML = """<!DOCTYPE html>
             color: var(--primary);
         }
 
-        /* BUTTONS */
         .button-group {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -759,7 +751,6 @@ HTML = """<!DOCTYPE html>
             box-shadow: 0 0 16px rgba(255,152,0,0.4);
         }
 
-        /* PRESETS GRID */
         .presets-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -795,7 +786,6 @@ HTML = """<!DOCTYPE html>
             box-shadow: 0 0 12px rgba(255,152,0,0.5);
         }
 
-        /* NETWORK SETTINGS */
         .form-group {
             margin-bottom: 10px;
             display: flex;
@@ -830,7 +820,6 @@ HTML = """<!DOCTYPE html>
             box-shadow: 0 0 8px rgba(255,152,0,0.2);
         }
 
-        /* DEBUG TAB */
         .debug-display {
             background: #1a1a1a;
             border: 2px solid var(--border);
@@ -846,7 +835,6 @@ HTML = """<!DOCTYPE html>
             word-break: break-all;
         }
 
-        /* SCROLLBAR */
         ::-webkit-scrollbar {
             width: 8px;
         }
@@ -864,7 +852,6 @@ HTML = """<!DOCTYPE html>
             background: var(--primary);
         }
 
-        /* RESPONSIVE */
         @media (max-width: 1200px) {
             .content {
                 flex-direction: column;
@@ -881,7 +868,6 @@ HTML = """<!DOCTYPE html>
 </head>
 <body>
     <div class="container">
-        <!-- HEADER -->
         <div class="header">
             <div class="header-left">
                 <h1>🎥 PTZ11 Controller</h1>
@@ -899,9 +885,7 @@ HTML = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- MAIN CONTENT -->
         <div class="content">
-            <!-- VIDEO SECTION -->
             <div class="video-section">
                 <div class="video-frame">
                     <img src="/video" alt="RTSP Stream" />
@@ -909,7 +893,6 @@ HTML = """<!DOCTYPE html>
                 </div>
             </div>
 
-            <!-- CONTROL PANEL -->
             <div class="control-panel">
                 <div class="panel-tabs">
                     <button class="tab-btn active" data-tab="controller">CONTROLLER</button>
@@ -919,11 +902,14 @@ HTML = """<!DOCTYPE html>
                 </div>
 
                 <div class="panel-content">
-                    <!-- CONTROLLER TAB -->
                     <div class="tab-pane active" id="controller">
-                        <!-- JOYSTICK -->
                         <div class="control-section">
-                            <div class="section-title">Pan / Tilt</div>
+                            <div class="section-title">Pan / Tilt Joystick</div>
+                            <div class="slider-item" style="margin-bottom: 12px; font-size: 10px; color: var(--text-secondary);">
+                                <div class="slider-label">Joystick Speed</div>
+                                <input type="range" id="joy-speed" min="1" max="10" value="5" style="margin: 4px 0;">
+                                <div class="slider-value" id="joy-spd-val">Medium (5/10)</div>
+                            </div>
                             <div class="joystick-container">
                                 <div class="joystick" id="joypad">
                                     <div class="joystick-ring"></div>
@@ -932,7 +918,6 @@ HTML = """<!DOCTYPE html>
                             </div>
                         </div>
 
-                        <!-- ZOOM & FOCUS -->
                         <div class="control-section">
                             <div class="section-title">Zoom & Focus</div>
                             <div class="slider-group">
@@ -951,7 +936,6 @@ HTML = """<!DOCTYPE html>
                             </div>
                         </div>
 
-                        <!-- ACTIONS -->
                         <div class="control-section">
                             <div class="button-group full">
                                 <button class="btn primary" onclick="stopAll()">⏹ STOP ALL</button>
@@ -963,7 +947,6 @@ HTML = """<!DOCTYPE html>
                         </div>
                     </div>
 
-                    <!-- PRESETS TAB -->
                     <div class="tab-pane" id="presets">
                         <div class="control-section">
                             <div class="section-title">Memory Presets (1-32)</div>
@@ -974,7 +957,6 @@ HTML = """<!DOCTYPE html>
                         </div>
                     </div>
 
-                    <!-- SETTINGS TAB -->
                     <div class="tab-pane" id="settings">
                         <div class="control-section">
                             <div class="section-title">Network Configuration</div>
@@ -999,12 +981,11 @@ HTML = """<!DOCTYPE html>
                         </div>
                     </div>
 
-                    <!-- DEBUG TAB -->
                     <div class="tab-pane" id="debug">
                         <div class="control-section">
                             <div class="section-title">System Status</div>
                             <div class="debug-display" id="debug-info">Initializing...</div>
-                            <button class="btn primary" onclick="refreshDebug()" style="width: 100%;">🔄 Refresh</button>
+                            <button class="btn primary" onclick="refreshDebug()" style="width: 100%">🔄 Refresh</button>
                         </div>
                     </div>
                 </div>
@@ -1013,12 +994,20 @@ HTML = """<!DOCTYPE html>
     </div>
 
     <script>
-        // ============= JOYSTICK CONTROL =============
         let joyActive = false;
         let lastCmd = null;
+        let joySpeedMult = 0.5;
 
         const joypad = document.getElementById('joypad');
         const joyKnob = document.getElementById('joy-knob');
+        const joySpeedSlider = document.getElementById('joy-speed');
+
+        joySpeedSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            joySpeedMult = val / 10;
+            const labels = ['Very Slow', 'Slow', 'Slow', 'Normal', 'Normal', 'Medium', 'Fast', 'Fast', 'Very Fast', 'Max'];
+            document.getElementById('joy-spd-val').textContent = labels[val-1] + ' (' + val + '/10)';
+        });
 
         function updateJoyVisual(x, y) {
             const tx = x * 0.4;
@@ -1032,50 +1021,38 @@ HTML = """<!DOCTYPE html>
             const angle = Math.atan2(y, x) * (180 / Math.PI);
             const dist = Math.sqrt(x*x + y*y);
             const maxDist = 70;
-            const speed = Math.max(4, Math.min(24, Math.floor((dist/maxDist) * 20)));
+            const baseSpeed = Math.max(4, Math.min(24, Math.floor((dist/maxDist) * 20)));
+            const speed = Math.floor(baseSpeed * joySpeedMult);
             
             let p = '03', t = '03';
             
-            // 8-direction mapping
             if (angle > -22.5 && angle <= 22.5) {
-                p = '02'; // Right
+                p = '02';
             } else if (angle > 22.5 && angle <= 67.5) {
-                p = '02'; t = '01'; // Right-Up
+                p = '02'; t = '01';
             } else if (angle > 67.5 && angle <= 112.5) {
-                t = '01'; // Up
+                t = '01';
             } else if (angle > 112.5 && angle <= 157.5) {
-                p = '01'; t = '01'; // Left-Up
+                p = '01'; t = '01';
             } else if (angle > 157.5 || angle <= -157.5) {
-                p = '01'; // Left
+                p = '01';
             } else if (angle > -157.5 && angle <= -112.5) {
-                p = '01'; t = '02'; // Left-Down
+                p = '01'; t = '02';
             } else if (angle > -112.5 && angle <= -67.5) {
-                t = '02'; // Down
+                t = '02';
             } else if (angle > -67.5 && angle <= -22.5) {
-                p = '02'; t = '02'; // Right-Down
+                p = '02'; t = '02';
             }
             
-            return { p, t, s: speed };
+            return { p, t, s: Math.max(1, speed) };
         }
 
-        joypad.addEventListener('mousedown', (e) => {
+        function startJoy(e) {
+            e.preventDefault();
             joyActive = true;
             joyKnob.classList.add('active');
             handleJoyMove(e);
-        });
-
-        document.addEventListener('mousemove', (e) => {
-            if (!joyActive) return;
-            handleJoyMove(e);
-        });
-
-        document.addEventListener('mouseup', () => {
-            if (!joyActive) return;
-            joyActive = false;
-            joyKnob.classList.remove('active');
-            updateJoyVisual(0, 0);
-            fetch('/api/stop').catch(() => {});
-        });
+        }
 
         function handleJoyMove(e) {
             if (!joyActive) return;
@@ -1107,7 +1084,20 @@ HTML = """<!DOCTYPE html>
             }
         }
 
-        // ============= ZOOM & FOCUS SLIDERS =============
+        function endJoy() {
+            if (!joyActive) return;
+            joyActive = false;
+            joyKnob.classList.remove('active');
+            updateJoyVisual(0, 0);
+            fetch('/api/stop').catch(() => {});
+            lastCmd = null;
+        }
+
+        joypad.addEventListener('mousedown', startJoy);
+        document.addEventListener('mousemove', handleJoyMove);
+        document.addEventListener('mouseup', endJoy);
+        joypad.addEventListener('mouseleave', endJoy);
+
         document.querySelectorAll('.joystick-control').forEach(el => {
             el.addEventListener('input', (e) => {
                 const type = e.target.dataset.type;
@@ -1149,8 +1139,10 @@ HTML = """<!DOCTYPE html>
             });
         });
 
-        // ============= BUTTONS =============
         function stopAll() {
+            if (joyActive) {
+                endJoy();
+            }
             fetch('/api/stop').catch(() => {});
             document.getElementById('zoom').value = 0;
             document.getElementById('focus').value = 0;
@@ -1168,7 +1160,6 @@ HTML = """<!DOCTYPE html>
             document.getElementById('focus-val').textContent = 'AUTO';
         }
 
-        // ============= PRESETS =============
         function generatePresets() {
             const grid = document.getElementById('preset-grid');
             grid.innerHTML = '';
@@ -1211,7 +1202,6 @@ HTML = """<!DOCTYPE html>
             }
         }
 
-        // ============= SETTINGS =============
         function loadConfig() {
             fetch('/api/config')
                 .then(r => r.json())
@@ -1267,12 +1257,10 @@ HTML = """<!DOCTYPE html>
                 });
         }
 
-        // ============= DEBUG & STATUS =============
         function updateStatus() {
             fetch('/api/status')
                 .then(r => r.json())
                 .then(data => {
-                    // Update indicators
                     const camStat = document.getElementById('cam-status');
                     const streamStat = document.getElementById('stream-status');
                     const streamInfo = document.getElementById('stream-info');
@@ -1325,7 +1313,6 @@ HTML = """<!DOCTYPE html>
                 });
         }
 
-        // ============= TAB NAVIGATION =============
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const tabName = btn.dataset.tab;
@@ -1338,7 +1325,6 @@ HTML = """<!DOCTYPE html>
             });
         });
 
-        // ============= INIT =============
         window.addEventListener('load', () => {
             generatePresets();
             loadConfig();
@@ -1355,11 +1341,11 @@ if __name__ == '__main__':
     load_config()
     
     print("""
-    ╔════════════════════════════════════════════════════════════════╗
+    ╔═══════════════════════════════════════════════════════════════╗
     ║        🎥 PTZ11 Controller v6.1 - Kiloview Edition             ║
     ║     Modern Clean UI + Professional Joystick Control            ║
     ║     Based on firmware: 3301432581P2107-V1.3.81                ║
-    ╠════════════════════════════════════════════════════════════════╣
+    ╠═══════════════════════════════════════════════════════════════╣
     ║                                                                ║
     ║  ✓ Device: 192.168.1.11:52381                                 ║
     ║  ✓ Web UI: http://127.0.0.1:5007                              ║
@@ -1367,19 +1353,18 @@ if __name__ == '__main__':
     ║                                                                ║
     ║  Features:                                                     ║
     ║    • Live RTSP H.264 stream (640x360)                         ║
-    ║    • Fixed joystick with 8-direction control                  ║
+    ║    • FIXED joystick with speed control (1-10)                 ║
     ║    • Smooth zoom/focus sliders                                ║
     ║    • Memory presets (P1-P32)                                  ║
     ║    • Network configuration                                    ║
     ║    • System diagnostics                                       ║
     ║                                                                ║
     ║  Press Ctrl+C to stop                                         ║
-    ╠════════════════════════════════════════════════════════════════╣
+    ╠═══════════════════════════════════════════════════════════════╣
     """)
     
     check_camera()
     
-    # Background status checker
     def bg_check():
         while True:
             time.sleep(5)
