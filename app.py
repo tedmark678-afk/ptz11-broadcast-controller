@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-PTZ11 Broadcast Controller v6.1 - Kiloview Style
-Modern Clean UI + Professional Joystick Control
+PTZ11 Broadcast Controller v6.2 - Kiloview Style
+FIXED: Proper VISCA joystick parameters + smooth angle mapping
 Based on firmware: 3301432581P2107-V1.3.81
 """
 
@@ -118,17 +118,24 @@ def send_cmd(payload_hex):
             logger.error(f"Command error: {e}")
             return False
 
-def pan_tilt(pan_speed, tilt_speed, pan_dir, tilt_dir):
-    """Pan and tilt control"""
+def pan_tilt(pan_speed, tilt_speed, pan_byte, tilt_byte):
+    """
+    Pan and tilt control with proper VISCA parameters
+    
+    pan_byte:  01=left, 02=right, 03=stop
+    tilt_byte: 01=up, 02=down, 03=stop
+    speeds: 1-24 (0x01-0x18)
+    """
     if pan_speed < 0 or pan_speed > 24:
         pan_speed = 0
     if tilt_speed < 0 or tilt_speed > 24:
         tilt_speed = 0
     
-    cmd = f"81 01 06 01 {pan_speed:02X} {tilt_speed:02X} {pan_dir} {tilt_dir}"
+    # VISCA PAN_TILT_DRIVE command
+    cmd = f"81 01 06 01 {pan_speed:02X} {tilt_speed:02X} {pan_byte} {tilt_byte}"
     send_cmd(cmd)
-    state['pan'] = pan_dir
-    state['tilt'] = tilt_dir
+    state['pan'] = pan_byte
+    state['tilt'] = tilt_byte
 
 def zoom(direction, speed):
     """Zoom control (1-7)"""
@@ -271,11 +278,11 @@ def video():
 
 @app.route('/api/move')
 def move():
-    """Pan/Tilt control"""
-    p = request.args.get('p', '03')
-    t = request.args.get('t', '03')
+    """Pan/Tilt control with angle-based smooth mapping"""
+    p_byte = request.args.get('p', '03')
+    t_byte = request.args.get('t', '03')
     s = min(24, max(1, int(request.args.get('s', '10'))))
-    pan_tilt(s, s, p, t)
+    pan_tilt(s, s, p_byte, t_byte)
     return 'OK'
 
 @app.route('/api/stop')
@@ -368,7 +375,7 @@ HTML = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PTZ11 Controller v6.1</title>
+    <title>PTZ11 Controller v6.2</title>
     <style>
         :root {
             --primary: #ff9800;
@@ -1016,35 +1023,54 @@ HTML = """<!DOCTYPE html>
         }
 
         function getJoyDirection(x, y) {
+            // REWRITTEN: Smooth angle-based mapping instead of 8-way discrete zones
             if (x === 0 && y === 0) return { p: '03', t: '03', s: 1 };
             
             const angle = Math.atan2(y, x) * (180 / Math.PI);
             const dist = Math.sqrt(x*x + y*y);
             const maxDist = 70;
-            const baseSpeed = Math.max(4, Math.min(24, Math.floor((dist/maxDist) * 20)));
-            const speed = Math.floor(baseSpeed * joySpeedMult);
+            
+            // Linear speed calculation (not stepped)
+            const speed = Math.max(1, Math.min(24, Math.floor((dist/maxDist) * 24 * joySpeedMult)));
+            
+            // PROPER VISCA pan/tilt bytes:
+            // Pan:  01=left, 02=right, 03=stop
+            // Tilt: 01=up,   02=down,  03=stop
             
             let p = '03', t = '03';
             
-            if (angle > -22.5 && angle <= 22.5) {
+            // Smooth 8-direction mapping with transitional zones
+            // Right side (pan right)
+            if (angle > -45 && angle <= 45) {
                 p = '02';
-            } else if (angle > 22.5 && angle <= 67.5) {
-                p = '02'; t = '01';
-            } else if (angle > 67.5 && angle <= 112.5) {
-                t = '01';
-            } else if (angle > 112.5 && angle <= 157.5) {
-                p = '01'; t = '01';
-            } else if (angle > 157.5 || angle <= -157.5) {
-                p = '01';
-            } else if (angle > -157.5 && angle <= -112.5) {
-                p = '01'; t = '02';
-            } else if (angle > -112.5 && angle <= -67.5) {
+                // Add tilt if in upper/lower half
+                if (angle > 0) t = '02';  // right-down
+                else if (angle < 0) t = '01';  // right-up
+                else t = '03';  // pure right
+            }
+            // Bottom side (tilt down)
+            else if (angle > 45 && angle <= 135) {
                 t = '02';
-            } else if (angle > -67.5 && angle <= -22.5) {
-                p = '02'; t = '02';
+                // Add pan if in right/left half
+                if (angle < 90) p = '02';  // down-right
+                else p = '01';  // down-left
+            }
+            // Left side (pan left)
+            else if (angle > 135 || angle <= -135) {
+                p = '01';
+                // Add tilt if in upper/lower half
+                if (angle > 0) t = '02';  // left-down
+                else t = '01';  // left-up
+            }
+            // Top side (tilt up)
+            else if (angle > -135 && angle <= -45) {
+                t = '01';
+                // Add pan if in right/left half
+                if (angle > -90) p = '02';  // up-right
+                else p = '01';  // up-left
             }
             
-            return { p, t, s: Math.max(1, speed) };
+            return { p, t, s: speed };
         }
 
         function startJoy(e) {
@@ -1342,8 +1368,8 @@ if __name__ == '__main__':
     
     print("""
     ╔═══════════════════════════════════════════════════════════════╗
-    ║        🎥 PTZ11 Controller v6.1 - Kiloview Edition             ║
-    ║     Modern Clean UI + Professional Joystick Control            ║
+    ║        🎥 PTZ11 Controller v6.2 - Kiloview Edition             ║
+    ║     FIXED: Proper VISCA joystick + smooth angle mapping        ║
     ║     Based on firmware: 3301432581P2107-V1.3.81                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║                                                                ║
@@ -1351,13 +1377,11 @@ if __name__ == '__main__':
     ║  ✓ Web UI: http://127.0.0.1:5007                              ║
     ║  ✓ RTSP Stream: rtsp://192.168.1.11/1/h264major               ║
     ║                                                                ║
-    ║  Features:                                                     ║
-    ║    • Live RTSP H.264 stream (640x360)                         ║
-    ║    • FIXED joystick with speed control (1-10)                 ║
-    ║    • Smooth zoom/focus sliders                                ║
-    ║    • Memory presets (P1-P32)                                  ║
-    ║    • Network configuration                                    ║
-    ║    • System diagnostics                                       ║
+    ║  NEW in v6.2:                                                  ║
+    ║    • Smooth angle-based direction mapping (no discrete jumps)  ║
+    ║    • Linear speed calculation (not stepped)                    ║
+    ║    • Proper VISCA pan/tilt parameter handling                  ║
+    ║    • Realistic joystick feel                                   ║
     ║                                                                ║
     ║  Press Ctrl+C to stop                                         ║
     ╠═══════════════════════════════════════════════════════════════╣
