@@ -2,6 +2,7 @@
 """
 PTZ11 Broadcast Controller v6.8
 Ultra-safe: Script at end of body, immediate execution
+BUGFIX: Joystick timeout removed - now holds stable until pointerup/pointercancel
 """
 
 import cv2, threading, socket, time, logging, json, os
@@ -248,7 +249,7 @@ body{width:100%;height:100vh;background:var(--bg);color:var(--text);font-family:
 .joystick-wrap{display:flex;justify-content:center;margin-bottom:12px}
 .joystick{position:relative;width:180px;height:180px;background:radial-gradient(circle at 35% 35%,#3d3d3d,#1a1a1a);border:3px solid var(--border);border-radius:50%;box-shadow:inset 0 2px 8px rgba(0,0,0,0.8),inset 0 -2px 8px rgba(255,255,255,0.1),0 8px 16px rgba(0,0,0,0.5);cursor:crosshair;user-select:none;display:flex;align-items:center;justify-content:center;touch-action:none}
 .joystick-ring{position:absolute;width:120px;height:120px;border:2px dashed var(--border);border-radius:50%;opacity:0.5}
-.joystick-knob{position:absolute;width:50px;height:50px;background:radial-gradient(circle at 30% 30%,#666,#222);border-radius:50%;box-shadow:0 4px 12px rgba(0,0,0,0.6),inset 0 2px 4px rgba(255,255,255,0.2);cursor:grab;z-index:10;transition:transform 0.05s ease-out;border:2px solid var(--border)}
+.joystick-knob{position:absolute;width:50px;height:50px;background:radial-gradient(circle at 30% 30%,#666,#222);border-radius:50%;box-shadow:0 4px 12px rgba(0,0,0,0.6),inset 0 2px 4px rgba(255,255,255,0.2);cursor:grab;z-index:10;border:2px solid var(--border)}
 .joystick-knob.active{cursor:grabbing}
 .slider-group{display:flex;gap:10px;margin-bottom:12px}
 .slider-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
@@ -275,7 +276,7 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 <div class="header">
 <div>
 <h1>[CAMERA] PTZ11 Controller</h1>
-<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.8</p>
+<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.8 [FIXED]</p>
 </div>
 <div style="display:flex;gap:20px">
 <div style="display:flex;gap:8px;font-size:12px"><span>Camera</span><div style="width:10px;height:10px;border-radius:50%;background:#aaa" id="cam-dot"></div></div>
@@ -372,9 +373,9 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 </div>
 </body>
 <script>
-console.log('[INIT] Script starting...');
+console.log('[INIT] Script starting... (FIXED JOYSTICK)');
 
-let joyActive=false, joyPointerId=null, lastCmd=null, joySpeedMult=0.5, joyReleaseTimeout=null;
+let joyActive=false, joyPointerId=null, lastCmd=null, joySpeedMult=0.5;
 
 const joypad=document.getElementById('joypad');
 const joyKnob=document.getElementById('joy-knob');
@@ -394,19 +395,10 @@ function releaseJoystick() {
     joyActive=false;
     joyPointerId=null;
     joyKnob.classList.remove('active');
+    joyKnob.style.transition='none';
     updateJoyVisual(0,0);
     fetch('/api/stop').catch(e=>console.error('Stop error:',e));
     lastCmd=null;
-}
-
-function setReleaseTimeout() {
-    if(joyReleaseTimeout) clearTimeout(joyReleaseTimeout);
-    joyReleaseTimeout=setTimeout(() => {
-        if(joyActive) {
-            console.log('Joystick RELEASE (timeout)');
-            releaseJoystick();
-        }
-    }, 1000);
 }
 
 joySpeed.addEventListener('input', e => {
@@ -439,14 +431,13 @@ joypad.addEventListener('pointerdown', e => {
     joyActive=true;
     joyPointerId=e.pointerId;
     joyKnob.classList.add('active');
+    joyKnob.style.transition='transform 0.05s ease-out';
     joypad.setPointerCapture(e.pointerId);
-    setReleaseTimeout();
-    console.log('Joystick DOWN');
+    console.log('Joystick DOWN (pointerId:', e.pointerId, ')');
 });
 
 document.addEventListener('pointermove', e => {
     if(!joyActive || e.pointerId!==joyPointerId) return;
-    setReleaseTimeout();
     const rect=joypad.getBoundingClientRect();
     const centerX=rect.width/2, centerY=rect.height/2;
     let x=e.clientX-rect.left-centerX, y=e.clientY-rect.top-centerY;
@@ -463,14 +454,8 @@ document.addEventListener('pointerup', e => {
     releaseJoystick();
 });
 
-joypad.addEventListener('pointerleave', e => {
-    if(!joyActive) return;
-    console.log('Joystick LEAVE');
-    releaseJoystick();
-});
-
 document.addEventListener('pointercancel', e => {
-    if(!joyActive) return;
+    if(!joyActive || e.pointerId!==joyPointerId) return;
     console.log('Joystick CANCEL');
     releaseJoystick();
 });
@@ -633,7 +618,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
     });
 });
 
-console.log('[READY] All listeners attached');
+console.log('[READY] All listeners attached (FIXED VERSION)');
 genPresets();
 loadConfig();
 updateStatus();
