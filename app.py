@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-PTZ11 Broadcast Controller v6.4
-FIXED: UTF-8 emoji encoding for Python 3.14
+PTZ11 Broadcast Controller v6.5
+FIXED: Joystick + Button events working
 """
 
 import cv2, threading, socket, time, logging, json, os
@@ -158,11 +158,13 @@ def video():
 @app.route('/api/move')
 def move():
     p, t, s = request.args.get('p', '03'), request.args.get('t', '03'), min(24, max(1, int(request.args.get('s', '10'))))
+    logger.info(f"MOVE: p={p} t={t} s={s}")
     pan_tilt(s, s, p, t)
     return 'OK'
 
 @app.route('/api/stop')
 def stop():
+    logger.info("STOP")
     pan_tilt(0, 0, '03', '03')
     zoom('stop', 0)
     focus('stop', 0)
@@ -171,28 +173,33 @@ def stop():
 @app.route('/api/zoom')
 def z():
     d, s = request.args.get('dir', 'stop'), min(7, max(1, int(request.args.get('s', '1'))))
+    logger.info(f"ZOOM: dir={d} s={s}")
     zoom(d, s)
     return 'OK'
 
 @app.route('/api/focus')
 def f():
     d, s = request.args.get('dir', 'stop'), min(8, max(1, int(request.args.get('s', '1'))))
+    logger.info(f"FOCUS: dir={d} s={s}")
     focus(d, s)
     return 'OK'
 
 @app.route('/api/preset/set')
 def preset_set_api():
     num = int(request.args.get('num', 1))
+    logger.info(f"PRESET SET: {num}")
     return jsonify({'success': preset_set(num), 'preset': num})
 
 @app.route('/api/preset/call')
 def preset_call_api():
     num = int(request.args.get('num', 1))
+    logger.info(f"PRESET CALL: {num}")
     return jsonify({'success': preset_call(num), 'preset': num})
 
 @app.route('/api/preset/delete')
 def preset_delete_api():
     num = int(request.args.get('num', 1))
+    logger.info(f"PRESET DELETE: {num}")
     return jsonify({'success': preset_delete(num), 'preset': num})
 
 @app.route('/api/config', methods=['GET', 'POST'])
@@ -202,8 +209,10 @@ def config():
         try:
             CAM_IP, CAM_PORT, RTSP_URL = request.json.get('cam_ip', CAM_IP), int(request.json.get('cam_port', CAM_PORT)), request.json.get('rtsp_url', RTSP_URL)
             save_config()
+            logger.info(f"CONFIG SAVED: {CAM_IP}:{CAM_PORT}")
             return jsonify({'success': True})
         except Exception as e:
+            logger.error(f"Config error: {e}")
             return jsonify({'success': False, 'error': str(e)}), 400
     return jsonify({'cam_ip': CAM_IP, 'cam_port': CAM_PORT, 'rtsp_url': RTSP_URL})
 
@@ -215,7 +224,7 @@ HTML = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PTZ11 Controller v6.4</title>
+<title>PTZ11 Controller v6.5</title>
 <style>
 :root{--primary:#ff9800;--bg:#1a1a1a;--text:#fff;--border:#404040}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -249,11 +258,14 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 .slider-value{background:rgba(255,152,0,0.1);border:1px solid var(--border);padding:4px 8px;border-radius:3px;font-size:10px;font-weight:bold;color:var(--primary);text-align:center}
 .btn{padding:10px 12px;background:linear-gradient(135deg,#444,#333);border:2px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-weight:600;font-size:12px;transition:all 0.2s;text-transform:uppercase}
 .btn:hover{background:linear-gradient(135deg,#555,#444);border-color:var(--primary);color:var(--primary)}
+.btn:active{transform:scale(0.98)}
 .btn.primary{background:linear-gradient(135deg,var(--primary),#ff9800);border-color:var(--primary);color:#000}
 .btn-group{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:12px}
 .btn-group.two{grid-template-columns:repeat(2,1fr)}
 .presets{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px}
 .preset-btn{aspect-ratio:1;background:linear-gradient(135deg,#444,#333);border:2px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-weight:bold;font-size:10px;display:flex;align-items:center;justify-content:center;transition:all 0.2s}
+.preset-btn:hover{border-color:var(--primary)}
+.preset-btn:active{transform:scale(0.95)}
 .preset-btn.active{background:linear-gradient(135deg,var(--primary),#ff9800);color:#000}
 @media(max-width:1200px){.content{flex-direction:column}.panel{width:100%;height:300px}}
 </style>
@@ -263,7 +275,7 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 <div class="header">
 <div>
 <h1>[CAMERA] PTZ11 Controller</h1>
-<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.4</p>
+<p style="font-size:11px;color:#aaa;margin-top:2px">Device: 192.168.1.11 | v6.5</p>
 </div>
 <div style="display:flex;gap:20px">
 <div style="display:flex;gap:8px;font-size:12px"><span>Camera</span><div style="width:10px;height:10px;border-radius:50%;background:#aaa" id="cam-dot"></div></div>
@@ -314,10 +326,10 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 </div>
 </div>
 <div class="section">
-<div class="btn-group"><button class="btn primary" onclick="stopAll()">[STOP] STOP ALL</button></div>
+<div class="btn-group"><button class="btn primary" id="stop-btn">[STOP] STOP ALL</button></div>
 <div class="btn-group two">
-<button class="btn" onclick="homePos()">[HOME] Home</button>
-<button class="btn" onclick="autoFocus()">[FOCUS] Auto Focus</button>
+<button class="btn" id="home-btn">[HOME] Home</button>
+<button class="btn" id="focus-btn">[FOCUS] Auto Focus</button>
 </div>
 </div>
 </div>
@@ -326,7 +338,7 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 <div class="section-title">Memory Presets</div>
 <div class="presets" id="preset-grid"></div>
 </div>
-<div class="btn-group"><button class="btn" onclick="clearPresets()">Clear All</button></div>
+<div class="btn-group"><button class="btn" id="clear-btn">Clear All</button></div>
 </div>
 <div class="tab-pane" id="settings">
 <div class="section">
@@ -343,15 +355,15 @@ input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:white;bo
 <label style="font-size:11px;font-weight:600;text-transform:uppercase;display:block;margin-bottom:4px">RTSP URL</label>
 <input type="text" id="rtsp-url" style="width:100%;padding:8px;background:#1a1a1a;border:2px solid var(--border);color:var(--text);border-radius:4px;font-family:monospace;font-size:12px">
 </div>
-<div class="btn-group"><button class="btn primary" onclick="saveConfig()" style="width:100%">[SAVE] Save</button></div>
-<div class="btn-group"><button class="btn" onclick="testConn()" style="width:100%">[TEST] Test</button></div>
+<div class="btn-group"><button class="btn primary" id="save-btn" style="width:100%">[SAVE] Save</button></div>
+<div class="btn-group"><button class="btn" id="test-btn" style="width:100%">[TEST] Test</button></div>
 </div>
 </div>
 <div class="tab-pane" id="debug">
 <div class="section">
 <div class="section-title">System Status</div>
 <div style="background:#1a1a1a;border:2px solid var(--border);padding:8px;border-radius:4px;font-family:monospace;font-size:11px;color:#0f0;max-height:180px;overflow-y:auto;margin-bottom:8px;white-space:pre-wrap;word-break:break-all" id="debug-info">Initializing...</div>
-<button class="btn primary" onclick="refreshDebug()" style="width:100%">[REFRESH] Refresh</button>
+<button class="btn primary" id="refresh-btn" style="width:100%">[REFRESH] Refresh</button>
 </div>
 </div>
 </div>
@@ -394,6 +406,7 @@ joypad.addEventListener('pointerdown', e => {
     joyActive=true;
     joyKnob.classList.add('active');
     joypad.setPointerCapture(e.pointerId);
+    console.log('Joystick captured');
 });
 
 document.addEventListener('pointermove', e => {
@@ -405,7 +418,10 @@ document.addEventListener('pointermove', e => {
     if(dist>maxDist){const angle=Math.atan2(y,x);x=Math.cos(angle)*maxDist;y=Math.sin(angle)*maxDist;}
     updateJoyVisual(x,y);
     const dir=getJoyDir(x,y), url=`/api/move?p=${dir.p}&t=${dir.t}&s=${dir.s}`;
-    if(url!==lastCmd){fetch(url).catch(()=>{});lastCmd=url;}
+    if(url!==lastCmd){
+        fetch(url).then(r=>r.text()).then(t=>console.log('Move:',t)).catch(e=>console.error('Move error:',e));
+        lastCmd=url;
+    }
 });
 
 document.addEventListener('pointerup', () => {
@@ -413,47 +429,190 @@ document.addEventListener('pointerup', () => {
     joyActive=false;
     joyKnob.classList.remove('active');
     updateJoyVisual(0,0);
-    fetch('/api/stop').catch(()=>{});
+    fetch('/api/stop').then(r=>r.text()).then(t=>console.log('Stop:',t)).catch(e=>console.error('Stop error:',e));
     lastCmd=null;
-});
-
-joypad.addEventListener('pointerleave', () => {
-    if(!joyActive) return;
-    joyActive=false;
-    joyKnob.classList.remove('active');
-    updateJoyVisual(0,0);
-    fetch('/api/stop').catch(()=>{});
-    lastCmd=null;
+    console.log('Joystick released');
 });
 
 document.querySelectorAll('.ctrl-slider').forEach(el=>{
     el.addEventListener('input', e => {
         const type=e.target.dataset.type, val=parseInt(e.target.value);
         if(type==='zoom'){
-            if(val===0){fetch('/api/zoom?dir=stop').catch(()=>{});document.getElementById('zoom-val').textContent='STOP';}
-            else{const dir=(val>0)?'in':'out', spd=Math.abs(val);fetch(`/api/zoom?dir=${dir}&s=${spd}`).catch(()=>{});document.getElementById('zoom-val').textContent=dir.toUpperCase()+' '+spd;}
-        }else{
-            if(val===0){fetch('/api/focus?dir=stop').catch(()=>{});document.getElementById('focus-val').textContent='AUTO';}
-            else{const dir=(val>0)?'near':'far', spd=Math.abs(val);fetch(`/api/focus?dir=${dir}&s=${spd}`).catch(()=>{});document.getElementById('focus-val').textContent=dir.toUpperCase()+' '+spd;}
+            if(val===0){
+                fetch('/api/zoom?dir=stop').then(r=>r.text()).catch(e=>console.error('Zoom stop error:',e));
+                document.getElementById('zoom-val').textContent='STOP';
+            } else {
+                const dir=(val>0)?'in':'out', spd=Math.abs(val);
+                fetch(`/api/zoom?dir=${dir}&s=${spd}`).then(r=>r.text()).catch(e=>console.error('Zoom error:',e));
+                document.getElementById('zoom-val').textContent=dir.toUpperCase()+' '+spd;
+            }
+        } else {
+            if(val===0){
+                fetch('/api/focus?dir=stop').then(r=>r.text()).catch(e=>console.error('Focus stop error:',e));
+                document.getElementById('focus-val').textContent='AUTO';
+            } else {
+                const dir=(val>0)?'near':'far', spd=Math.abs(val);
+                fetch(`/api/focus?dir=${dir}&s=${spd}`).then(r=>r.text()).catch(e=>console.error('Focus error:',e));
+                document.getElementById('focus-val').textContent=dir.toUpperCase()+' '+spd;
+            }
         }
     });
-    el.addEventListener('change', e => {e.target.value=0;const type=e.target.dataset.type;if(type==='zoom'){fetch('/api/zoom?dir=stop').catch(()=>{});document.getElementById('zoom-val').textContent='STOP';}else{fetch('/api/focus?dir=stop').catch(()=>{});document.getElementById('focus-val').textContent='AUTO';}});
 });
 
-function stopAll(){if(joyActive){joyActive=false;joyKnob.classList.remove('active');updateJoyVisual(0,0);}fetch('/api/stop').catch(()=>{});document.getElementById('zoom').value=0;document.getElementById('focus').value=0;document.getElementById('zoom-val').textContent='STOP';document.getElementById('focus-val').textContent='AUTO';}
-function homePos(){fetch('/api/preset/call?num=1').then(()=>updateStatus()).catch(()=>{});}
-function autoFocus(){fetch('/api/focus?dir=stop').catch(()=>{});document.getElementById('focus').value=0;document.getElementById('focus-val').textContent='AUTO';}
-function genPresets(){const grid=document.getElementById('preset-grid');grid.innerHTML='';for(let i=1;i<=32;i++){const btn=document.createElement('button');btn.className='preset-btn';btn.textContent='P'+i;btn.id='preset-'+i;btn.addEventListener('click',()=>presetCall(i));btn.addEventListener('dblclick',()=>presetSet(i));grid.appendChild(btn);}}
-function presetCall(num){fetch(`/api/preset/call?num=${num}`).then(()=>{document.querySelectorAll('.preset-btn').forEach(b=>b.classList.remove('active'));document.getElementById('preset-'+num).classList.add('active');updateStatus();}).catch(()=>{});}
-function presetSet(num){if(confirm(`Save Preset ${num}?`)){fetch(`/api/preset/set?num=${num}`).then(()=>alert('Saved!')).catch(()=>alert('Error'));}}
-function clearPresets(){if(confirm('Delete ALL?')){for(let i=1;i<=32;i++)fetch(`/api/preset/delete?num=${i}`).catch(()=>{});alert('Cleared');}}
-function loadConfig(){fetch('/api/config').then(r=>r.json()).then(d=>{document.getElementById('cam-ip').value=d.cam_ip;document.getElementById('cam-port').value=d.cam_port;document.getElementById('rtsp-url').value=d.rtsp_url;}).catch(()=>{});}
-function saveConfig(){const config={cam_ip:document.getElementById('cam-ip').value,cam_port:parseInt(document.getElementById('cam-port').value),rtsp_url:document.getElementById('rtsp-url').value};fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)}).then(r=>r.json()).then(d=>{alert(d.success?'Saved!':'Error');}).catch(err=>alert('Error: '+err));}
-function testConn(){const btn=event.target;btn.disabled=true;btn.textContent='Testing...';fetch('/api/status').then(r=>r.json()).then(d=>{alert(d.reachable?'OK ONLINE':'NOT OFFLINE');}).catch(()=>alert('FAILED')).finally(()=>{btn.disabled=false;btn.textContent='[TEST] Test';});}
-function updateStatus(){fetch('/api/status').then(r=>r.json()).then(d=>{const camDot=document.getElementById('cam-dot'),streamDot=document.getElementById('stream-dot'),streamInfo=document.getElementById('stream-info');camDot.style.background=d.reachable?'#4CAF50':'#f44336';if(d.stream_status==='live'){streamDot.style.background='#4CAF50';streamInfo.textContent='* LIVE '+d.stream_fps+' FPS';streamInfo.style.color='#4CAF50';}else if(d.stream_status==='buffering'){streamDot.style.background='var(--primary)';streamInfo.textContent='* BUFFERING';}else{streamDot.style.background='#f44336';streamInfo.textContent='* OFFLINE';}}).catch(()=>{});}
-function refreshDebug(){fetch('/api/status').then(r=>r.json()).then(d=>{let text='PTZ11 STATUS\n';text+='================\n';text+='Camera: '+d.cam_ip+':'+d.cam_port+'\n';text+='Reachable: '+(d.reachable?'YES':'NO')+'\n';text+='Stream: '+d.stream_status.toUpperCase()+'\n';text+='FPS: '+d.stream_fps+'\n';text+='Pan: '+d.pan+' Tilt: '+d.tilt+'\n';text+='Zoom: '+d.zoom+' Focus: '+d.focus+'\n';text+='Preset: '+d.preset_active+'\n';document.getElementById('debug-info').textContent=text;}).catch(err=>{document.getElementById('debug-info').textContent='Error: '+err;});}
-document.querySelectorAll('.tab-btn').forEach(btn=>{btn.addEventListener('click',()=>{const tab=btn.dataset.tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));btn.classList.add('active');document.getElementById(tab).classList.add('active');});});
-window.addEventListener('load',()=>{genPresets();loadConfig();updateStatus();refreshDebug();setInterval(updateStatus,2000);});
+document.getElementById('stop-btn').addEventListener('click', () => {
+    console.log('Stop all clicked');
+    if(joyActive){joyActive=false;joyKnob.classList.remove('active');updateJoyVisual(0,0);}
+    fetch('/api/stop').then(r=>r.text()).catch(e=>console.error('Stop error:',e));
+    document.getElementById('zoom').value=0;
+    document.getElementById('focus').value=0;
+    document.getElementById('zoom-val').textContent='STOP';
+    document.getElementById('focus-val').textContent='AUTO';
+});
+
+document.getElementById('home-btn').addEventListener('click', () => {
+    console.log('Home clicked');
+    fetch('/api/preset/call?num=1').then(()=>updateStatus()).catch(e=>console.error('Home error:',e));
+});
+
+document.getElementById('focus-btn').addEventListener('click', () => {
+    console.log('Auto focus clicked');
+    fetch('/api/focus?dir=stop').then(r=>r.text()).catch(e=>console.error('Focus error:',e));
+    document.getElementById('focus').value=0;
+    document.getElementById('focus-val').textContent='AUTO';
+});
+
+document.getElementById('clear-btn').addEventListener('click', () => {
+    if(confirm('Delete ALL presets?')){
+        for(let i=1;i<=32;i++)fetch(`/api/preset/delete?num=${i}`).catch(e=>console.error('Delete error:',e));
+        alert('Cleared');
+    }
+});
+
+function genPresets(){
+    const grid=document.getElementById('preset-grid');
+    grid.innerHTML='';
+    for(let i=1;i<=32;i++){
+        const btn=document.createElement('button');
+        btn.className='preset-btn';
+        btn.textContent='P'+i;
+        btn.id='preset-'+i;
+        btn.addEventListener('click',()=>{
+            console.log('Preset call:',i);
+            fetch(`/api/preset/call?num=${i}`).then(r=>r.json()).then(d=>{
+                document.querySelectorAll('.preset-btn').forEach(b=>b.classList.remove('active'));
+                document.getElementById('preset-'+i).classList.add('active');
+                updateStatus();
+            }).catch(e=>console.error('Preset call error:',e));
+        });
+        btn.addEventListener('dblclick',()=>{
+            if(confirm(`Save Preset ${i}?`)){
+                console.log('Preset set:',i);
+                fetch(`/api/preset/set?num=${i}`).then(r=>r.json()).then(d=>{
+                    alert(d.success?'Saved!':'Error');
+                }).catch(e=>{console.error('Preset set error:',e);alert('Error');});
+            }
+        });
+        grid.appendChild(btn);
+    }
+}
+
+function loadConfig(){
+    fetch('/api/config').then(r=>r.json()).then(d=>{
+        document.getElementById('cam-ip').value=d.cam_ip;
+        document.getElementById('cam-port').value=d.cam_port;
+        document.getElementById('rtsp-url').value=d.rtsp_url;
+    }).catch(e=>console.error('Config load error:',e));
+}
+
+document.getElementById('save-btn').addEventListener('click', () => {
+    console.log('Config save clicked');
+    const config={
+        cam_ip:document.getElementById('cam-ip').value,
+        cam_port:parseInt(document.getElementById('cam-port').value),
+        rtsp_url:document.getElementById('rtsp-url').value
+    };
+    fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)})
+        .then(r=>r.json())
+        .then(d=>{alert(d.success?'Saved!':'Error');})
+        .catch(err=>{console.error('Config save error:',err);alert('Error: '+err);});
+});
+
+document.getElementById('test-btn').addEventListener('click', () => {
+    console.log('Test clicked');
+    const btn=document.getElementById('test-btn');
+    btn.disabled=true;
+    btn.textContent='Testing...';
+    fetch('/api/status')
+        .then(r=>r.json())
+        .then(d=>{alert(d.reachable?'OK ONLINE':'NOT OFFLINE');})
+        .catch(e=>{console.error('Test error:',e);alert('FAILED');})
+        .finally(()=>{btn.disabled=false;btn.textContent='[TEST] Test';});
+});
+
+function updateStatus(){
+    fetch('/api/status')
+        .then(r=>r.json())
+        .then(d=>{
+            const camDot=document.getElementById('cam-dot'),
+                  streamDot=document.getElementById('stream-dot'),
+                  streamInfo=document.getElementById('stream-info');
+            camDot.style.background=d.reachable?'#4CAF50':'#f44336';
+            if(d.stream_status==='live'){
+                streamDot.style.background='#4CAF50';
+                streamInfo.textContent='* LIVE '+d.stream_fps+' FPS';
+                streamInfo.style.color='#4CAF50';
+            } else if(d.stream_status==='buffering'){
+                streamDot.style.background='var(--primary)';
+                streamInfo.textContent='* BUFFERING';
+            } else {
+                streamDot.style.background='#f44336';
+                streamInfo.textContent='* OFFLINE';
+            }
+        })
+        .catch(e=>console.error('Status error:',e));
+}
+
+document.getElementById('refresh-btn').addEventListener('click', () => {
+    console.log('Refresh clicked');
+    refreshDebug();
+});
+
+function refreshDebug(){
+    fetch('/api/status')
+        .then(r=>r.json())
+        .then(d=>{
+            let text='PTZ11 STATUS\\n';
+            text+='================\\n';
+            text+='Camera: '+d.cam_ip+':'+d.cam_port+'\\n';
+            text+='Reachable: '+(d.reachable?'YES':'NO')+'\\n';
+            text+='Stream: '+d.stream_status.toUpperCase()+'\\n';
+            text+='FPS: '+d.stream_fps+'\\n';
+            text+='Pan: '+d.pan+' Tilt: '+d.tilt+'\\n';
+            text+='Zoom: '+d.zoom+' Focus: '+d.focus+'\\n';
+            text+='Preset: '+d.preset_active+'\\n';
+            document.getElementById('debug-info').textContent=text;
+        })
+        .catch(err=>{document.getElementById('debug-info').textContent='Error: '+err;});
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+        const tab=btn.dataset.tab;
+        document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(tab).classList.add('active');
+    });
+});
+
+window.addEventListener('load',()=>{
+    console.log('Page loaded');
+    genPresets();
+    loadConfig();
+    updateStatus();
+    refreshDebug();
+    setInterval(updateStatus,2000);
+});
 </script>
 </html>
 """
